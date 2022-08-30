@@ -23,7 +23,7 @@
     "firebase-admin": "^10.0.2",
     "http-errors": "^1.8.0",
     "jsonschema": "^1.4.0",
-    "moment-timezone": "^0.5.32",
+    "moment-timezone": "^0.5.35",
     "mysql": "^2.18.1",
     "pusher": "^5.0.0",
     "redis": "^3.1.0",
