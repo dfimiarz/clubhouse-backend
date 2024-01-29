@@ -3,9 +3,6 @@ runtime: nodejs10
 
 env_variables:
 
-  # CLIENT_URL used for setting CORS headers
-  CLIENT_URL: https://url
-
   SQL_USER: root
   SQL_PASSWORD: password
   SQL_DATABASE: database

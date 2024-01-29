@@ -11,12 +11,14 @@ const RESTError = require('./utils/RESTError')
 const { checkUserAuth, checkGeoAuth, checkUserRole } = require('./middleware/clientauth')
 const { cloudLog, cloudLogLevels: loglevels } = require('./utils/logger/logger');
 
-app.set('trust proxy', true)
+app.set('trust proxy', true);
 
-console.log("Permitted client", process.env.CLIENT_URL);
+const allowedHosts = ['localhost:8081', /\.clubhouse\.test:8081$/];
+
+console.log("Permitted client", allowedHosts);
 
 const corsOptions = {
-    origin: process.env.CLIENT_URL,
+    origin: allowedHosts,
     optionsSuccessStatus: 200,
     credentials: true,
     exposedHeaders: ['Etag']
