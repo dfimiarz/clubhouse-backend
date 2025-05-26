@@ -17,7 +17,7 @@ const { log, appLogLevels } = require('./utils/logger/logger');
 
 app.set("trust proxy", true);
 
-const allowedHosts = ['localhost:8081', /\.clubhouse\.test:8081$/];
+const allowedHosts = ['http://localhost:5173', /\.clubhouse\.test:8081$/];
 
 console.log("Permitted client", allowedHosts);
 
