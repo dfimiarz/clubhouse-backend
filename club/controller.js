@@ -44,6 +44,17 @@ async function getClubInfo() {
                         WHERE
                             club = ?`;
 
+    //Get about sections for the club
+    const about_query = `SELECT
+                            title,
+                            image_url,
+                            text_content
+                        FROM
+                            about_section
+                        WHERE
+                            club = ?
+                        ORDER BY sort_order`;
+
     const connection = await sqlconnector.getConnection();
 
     try {
@@ -81,6 +92,21 @@ async function getClubInfo() {
         }
         else {
             result.images = [];
+        }
+
+        const about_results = await sqlconnector.runQuery(connection, about_query, [CLUB_ID]);
+
+        if (Array.isArray(about_results) && about_results.length > 0) {
+            result.about_sections = about_results.map((section) => {
+                return {
+                    title: section["title"],
+                    image_url: section["image_url"],
+                    text: section["text_content"]
+                }
+            });
+        }
+        else {
+            result.about_sections = [];
         }
 
         //Store club info in redis
