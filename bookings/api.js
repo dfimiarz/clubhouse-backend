@@ -74,6 +74,35 @@ router.get('/overlapping', authGuard, [
      }
 );
 
+router.get('/availability', authGuard, [
+     query('date').isDate().withMessage("Invalid date"),
+     query('start').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid start"),
+     query('end').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid end"),
+],
+     (req, res, next) => {
+
+          const errors = validationResult(req);
+
+          if (!errors.isEmpty()) {
+               log(appLogLevels.ERROR, "Court availability parameter error: " + JSON.stringify(errors.array()));
+               return next(new RESTError(422, "Invalid query parameter"))
+          }
+
+          const date = req.query.date ? req.query.date : null;
+          const start = req.query.start ? req.query.start : null;
+          const end = req.query.end ? req.query.end : null;
+
+          matchcontroller.getCourtAvailability(date, start, end)
+               .then((availability) => {
+                    res.json(availability);
+               })
+               .catch((err) => {
+                    next(err)
+               })
+
+     }
+);
+
 router.post('/batch', validateBatchInsertRequest, (req, res, next) => {
      
      matchcontroller.addBookingBatch(req)
@@ -150,7 +179,7 @@ router.get('/:id', authGuard, (req, res, next) => {
      // eslint-disable-next-line no-unused-vars
      (req, res, next) => {
           //Fiter out values that are needed by the front end
-          const filtered_booking = (({ start, end, permissions, booking_type_desc, date, court_name, bumpable, notes, id, etag, players, utc_start, utc_end, utc_req_time, type }) => {
+          const filtered_booking = (({ start, end, permissions, booking_type_desc, date, court_id, court_name, bumpable, notes, id, etag, players, utc_start, utc_end, utc_req_time, type }) => {
                return {
                     'start': start,
                     'end': end,
@@ -161,6 +190,7 @@ router.get('/:id', authGuard, (req, res, next) => {
                     'type': type,
                     'booking_type_desc': booking_type_desc,
                     'date': date,
+                    'court': court_id,
                     'court_name': court_name,
                     'bumpable': bumpable,
                     'notes': notes,
@@ -203,4 +233,3 @@ router.patch('/:id', authGuard, validatePatchRequest,
      })
 
 module.exports = router
-

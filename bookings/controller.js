@@ -373,10 +373,80 @@ async function getOverlappingBookings(court, date, start, end) {
   }
 }
 
+/**
+ *
+ * @param {String} date
+ * @param {String} start
+ * @param {String} end
+ */
+async function getCourtAvailability(date, start, end) {
+  const availability_q = `
+    SELECT
+      c.id AS court_id,
+      c.name AS court_name,
+      a.id AS booking_id,
+      DATE_FORMAT(a.date,"%Y-%m-%d") AS date,
+      a.start,
+      a.end
+    FROM court c
+    LEFT JOIN activity a
+      ON a.court = c.id
+      AND ? > a.start
+      AND ? < a.end
+      AND a.date = ?
+      AND a.active = 1
+    WHERE c.club = ?
+    ORDER BY c.id, a.start, a.end
+  `;
+
+  const connection = await sqlconnector.getConnection();
+
+  try {
+    const availability_result = await sqlconnector.runQuery(
+      connection,
+      availability_q,
+      [end, start, date, CLUB_ID]
+    );
+
+    const availability_map = new Map();
+
+    availability_result.forEach((row) => {
+      if (!availability_map.has(row.court_id)) {
+        availability_map.set(row.court_id, {
+          court: row.court_id,
+          court_name: row.court_name,
+          has_overlap: false,
+          overlaps: [],
+        });
+      }
+
+      if (row.booking_id !== null) {
+        const courtAvailability = availability_map.get(row.court_id);
+        courtAvailability.has_overlap = true;
+        courtAvailability.overlaps.push({
+          id: row.booking_id,
+          date: row.date,
+          start: row.start,
+          end: row.end,
+          court: row.court_id,
+          court_name: row.court_name,
+        });
+      }
+    });
+
+    return Array.from(availability_map.values());
+  } catch (err) {
+    throw new RESTError(500, "Error querying database");
+  } finally {
+    connection.release();
+  }
+}
+
 module.exports = {
   addBooking,
   getBookingData,
   processPatchCommand,
   getBookingsForDate,
   getOverlappingBookings,
+  getCourtAvailability,
 };
