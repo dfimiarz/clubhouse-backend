@@ -45,6 +45,7 @@ app.use("/alive", (_req, res, _next) => {
   res.status(200).json({ status: "ok" });
 });
 
+app.use("/public", require("./public/api"));
 app.use("/courts", require("./courts/api"));
 app.use("/bookings", require("./bookings/api"));
 app.use("/persons", require("./persons/api"));

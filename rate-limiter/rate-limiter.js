@@ -19,8 +19,17 @@ let guestRegistrationLimiter = rateLimit({
     message: "Too many guest registration attempts. Please try again later."
 })
 
+let publicReadLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: "Too many public schedule requests. Please try again later."
+})
+
 module.exports = {
     apilimiter: APILimiter,
     captchalimiter: captchaLimiter,
-    guestregistrationlimiter: guestRegistrationLimiter
+    guestregistrationlimiter: guestRegistrationLimiter,
+    publicreadlimiter: publicReadLimiter
 }

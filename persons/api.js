@@ -11,6 +11,13 @@ const router = express.Router();
 
 router.use(express.json())
 
+function formatFieldErrors(errors) {
+     return errors.array({ onlyFirstError: true }).map((error) => ({
+          param: error.param || error.path,
+          msg: error.msg
+     }))
+}
+
 /**
  * Route to get all persons
  */
@@ -133,7 +140,7 @@ router.post('/guests', rateLimiter.guestregistrationlimiter, [
      const errors = validationResult(req);
 
      if (!errors.isEmpty()) {
-          return next(new RESTError(422, { fielderrors: errors.array({onlyFirstError: true})}))
+          return next(new RESTError(422, { fielderrors: formatFieldErrors(errors) }))
      }
 
      try {
