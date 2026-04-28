@@ -15,7 +15,7 @@ const {
 } = require("./middleware/clientauth");
 const { log, appLogLevels } = require('./utils/logger/logger');
 
-app.set("trust proxy", true);
+app.set("trust proxy", getTrustedProxySetting());
 
 const allowedHosts = [/localhost:5173$/, /\.clubhouse\.test:8081$/];
 
@@ -78,5 +78,35 @@ app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}...`);
   console.log(`Press Ctrl+C to quit`);
 });
+
+function getTrustedProxySetting() {
+  const mode = (process.env.TRUST_PROXY_MODE || "false").trim().toLowerCase();
+
+  if (mode === "true") {
+    return true;
+  }
+
+  if (mode === "false") {
+    return false;
+  }
+
+  if (mode === "loopback") {
+    return "loopback";
+  }
+
+  if (mode === "private") {
+    return ["loopback", "linklocal", "uniquelocal"];
+  }
+
+  if (mode === "cidr") {
+    return (process.env.TRUST_PROXY_CIDRS || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  log(appLogLevels.ERROR, `Invalid TRUST_PROXY_MODE "${process.env.TRUST_PROXY_MODE}". Falling back to false.`);
+  return false;
+}
 
 module.exports = app;
