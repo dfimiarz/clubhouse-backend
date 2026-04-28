@@ -5,6 +5,7 @@ const RESTError = require('./../utils/RESTError');
 const { authGuard } = require('../middleware/clientauth')
 const authcontroller = require('../auth/controller')
 const utils = require('../utils/utils')
+const rateLimiter = require('../rate-limiter/rate-limiter')
 
 const router = express.Router();
 
@@ -116,11 +117,11 @@ router.get('/guests/active', authGuard, (req, res, next) => {
 
 })
 
-router.post('/guests', [
-     body('email').isString().trim().notEmpty().withMessage("Field cannot be empty").isEmail().withMessage("Invalid E-mail Address"),
-     body('firstname').isString().trim().notEmpty().withMessage("Field cannot be empty").isLength({ min: 2, max: 32}).withMessage("Must be between 2 and 32 characters long"),
-     body('lastname').isString().trim().notEmpty().withMessage("Field cannot be empty").isLength({ min: 2, max: 32}).withMessage("Must be between 2 and 32 characters long"),
-     body('phone').if((value) => !!value ).isMobilePhone('en-US').withMessage("Must be a valid phone number"),
+router.post('/guests', rateLimiter.guestregistrationlimiter, [
+     body('email').isString().trim().notEmpty().withMessage("Field cannot be empty").isEmail().withMessage("Invalid E-mail Address").customSanitizer((value) => utils.normalizeEmail(value)),
+     body('firstname').isString().trim().notEmpty().withMessage("Field cannot be empty").isLength({ min: 2, max: 32}).withMessage("Must be between 2 and 32 characters long").customSanitizer((value) => utils.normalizeWhitespace(value)),
+     body('lastname').isString().trim().notEmpty().withMessage("Field cannot be empty").isLength({ min: 2, max: 32}).withMessage("Must be between 2 and 32 characters long").customSanitizer((value) => utils.normalizeWhitespace(value)),
+     body('phone').optional({ checkFalsy: true }).trim().isMobilePhone('en-US').withMessage("Must be a valid phone number").customSanitizer((value) => utils.normalizePhone(value)),
      check('agreement').exists().isBoolean().isIn([true]).withMessage("Agreement required")
 ], async (req, res, next) => {
 
@@ -138,9 +139,19 @@ router.post('/guests', [
      try {
           //Run captcha verification is users is not authenticated
           if (! utils.isAuthenticated(res)) {
-               const verified = await authcontroller.verifyhCaptcha(req.body.hcaptcha);
+               const verification = await authcontroller.verifyhCaptcha(req.body.hcaptcha, {
+                    remoteip: req.ip,
+               });
 
-               if (!verified) {
+               if (verification.replayed) {
+                    throw new RESTError(422,{ fielderrors: [{ param: "hcaptcha", msg: "Captcha token already used"}]});
+               }
+
+               if (!verification.hostnameValid) {
+                    throw new RESTError(422,{ fielderrors: [{ param: "hcaptcha", msg: "Captcha hostname check failed"}]});
+               }
+
+               if (!verification.success) {
                     throw new RESTError(422,{ fielderrors: [{ param: "hcaptcha", msg: "Failed to verify captcha"}]});
                }
           }
@@ -156,4 +167,3 @@ router.post('/guests', [
 })
 
 module.exports = router
-

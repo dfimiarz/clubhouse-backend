@@ -1,4 +1,5 @@
 const {getAuth} = require('firebase-admin/auth')
+const net = require('node:net')
 const app = require('../firebaseadmin/firebaseadmin')
 const RESTError = require('../utils/RESTError')
 const { log, appLogLevels } = require('./../utils/logger/logger');
@@ -100,8 +101,14 @@ async function checkUserAuth(req, res, next) {
  * In nginx, geo module can set the header based on IP (http://nginx.org/en/docs/http/ngx_http_geo_module.html)
  */
 function checkGeoAuth(req, res, next) {
+    const geoAuthState = getGeoAuthState(req);
 
-    res.locals.geoauth = req.header('X-AUTH-CLIENT') === "1";
+    if (geoAuthState.spoofed) {
+        log(appLogLevels.ERROR, `Rejected spoofed trusted client header. Remote: ${geoAuthState.remoteAddress || "unknown"} IP: ${req.ip}`);
+        return next(new RESTError(401, "Invalid trusted client header"));
+    }
+
+    res.locals.geoauth = geoAuthState.geoauth;
 
     next();
 }
@@ -139,4 +146,43 @@ function authGuard(req, res, next) {
     }
 }
 
-module.exports = { checkUserAuth, checkGeoAuth, authGuard, checkUserRole, roleGuard }
+function getGeoAuthState(req) {
+    const requested = req.header('X-AUTH-CLIENT') === "1";
+    const remoteAddress = req.socket?.remoteAddress || req.connection?.remoteAddress || null;
+    const trustedSource = isTrustedProxySource(remoteAddress);
+
+    return {
+        geoauth: requested && trustedSource,
+        spoofed: requested && !trustedSource,
+        requested,
+        trustedSource,
+        remoteAddress,
+    };
+}
+
+function isTrustedProxySource(remoteAddress) {
+    if (!remoteAddress || net.isIP(remoteAddress) === 0) {
+        return false;
+    }
+
+    const normalizedAddress = remoteAddress.startsWith("::ffff:")
+        ? remoteAddress.slice(7)
+        : remoteAddress;
+
+    if (normalizedAddress === "::1" || normalizedAddress === "127.0.0.1") {
+        return true;
+    }
+
+    if (net.isIPv4(normalizedAddress)) {
+        return normalizedAddress.startsWith("10.") ||
+            normalizedAddress.startsWith("192.168.") ||
+            /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalizedAddress);
+    }
+
+    const loweredAddress = normalizedAddress.toLowerCase();
+    return loweredAddress.startsWith("fc") ||
+        loweredAddress.startsWith("fd") ||
+        loweredAddress.startsWith("fe80:");
+}
+
+module.exports = { checkUserAuth, checkGeoAuth, authGuard, checkUserRole, roleGuard, isTrustedProxySource, getGeoAuthState }

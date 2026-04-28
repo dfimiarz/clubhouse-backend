@@ -1,7 +1,9 @@
 const sqlconnector = require("../db/SqlConnector");
 const club_id = process.env.CLUB_ID;
 const SQLErrorFactory = require("./../utils/SqlErrorFactory");
+const RESTError = require("./../utils/RESTError");
 const { log, appLogLevels } = require('./../utils/logger/logger');
+const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../utils/utils");
 
 const constatnts = require("./../utils/dbconstants");
 
@@ -120,10 +122,10 @@ async function getGuests() {
 async function addGuest(request) {
   const OPCODE = "ADD_GUEST";
 
-  const firstname = request.body.firstname;
-  const lastname = request.body.lastname;
-  const email = request.body.email;
-  const phone = request.body.phone;
+  const firstname = normalizeWhitespace(request.body.firstname);
+  const lastname = normalizeWhitespace(request.body.lastname);
+  const email = normalizeEmail(request.body.email);
+  const phone = normalizePhone(request.body.phone);
   const GUEST_ROLE_ID = 500;
 
   const _firstNames = firstname.split(" ");
@@ -162,6 +164,17 @@ async function addGuest(request) {
         []
       );
 
+      const duplicateGuest = await findDuplicateGuest(connection, {
+        firstname: formattedFirstName,
+        lastname: formattedLastName,
+        email,
+        phone,
+      });
+
+      if (duplicateGuest) {
+        throw buildDuplicateGuestError(duplicateGuest);
+      }
+
       const person_insert_result = await sqlconnector.runQuery(
         connection,
         person_query,
@@ -183,10 +196,70 @@ async function addGuest(request) {
       throw error;
     }
   } catch (error) {
+    if (error instanceof RESTError) {
+      throw error;
+    }
+
     throw new SQLErrorFactory.getError(OPCODE, error);
   } finally {
     connection.release();
   }
+}
+
+async function findDuplicateGuest(connection, guest) {
+  const emailQuery = `
+    SELECT id
+    FROM person
+    WHERE club = ?
+      AND LOWER(TRIM(email)) = ?
+    LIMIT 1
+  `;
+  const emailMatches = await sqlconnector.runQuery(connection, emailQuery, [
+    club_id,
+    normalizeEmail(guest.email),
+  ]);
+
+  if (Array.isArray(emailMatches) && emailMatches.length > 0) {
+    return { kind: "email", id: emailMatches[0].id };
+  }
+
+  if (!guest.phone) {
+    return null;
+  }
+
+  const identityQuery = `
+    SELECT id
+    FROM person
+    WHERE club = ?
+      AND LOWER(TRIM(firstname)) = ?
+      AND LOWER(TRIM(lastname)) = ?
+      AND TRIM(phone) = ?
+    LIMIT 1
+  `;
+  const identityMatches = await sqlconnector.runQuery(connection, identityQuery, [
+    club_id,
+    guest.firstname.toLowerCase(),
+    guest.lastname.toLowerCase(),
+    normalizePhone(guest.phone),
+  ]);
+
+  if (Array.isArray(identityMatches) && identityMatches.length > 0) {
+    return { kind: "identity", id: identityMatches[0].id };
+  }
+
+  return null;
+}
+
+function buildDuplicateGuestError(duplicateGuest) {
+  if (duplicateGuest.kind === "email") {
+    return new RESTError(409, {
+      fielderrors: [{ param: "email", msg: "Guest already exists" }],
+    });
+  }
+
+  return new RESTError(409, {
+    fielderrors: [{ param: "phone", msg: "Guest already exists" }],
+  });
 }
 
 async function getPersons() {
@@ -232,6 +305,7 @@ module.exports = {
   getMembers: getMembers,
   getGuests: getGuests,
   addGuest: addGuest,
+  findDuplicateGuest,
   getPersons,
   getInactiveGuests,
   getActiveGuests,
