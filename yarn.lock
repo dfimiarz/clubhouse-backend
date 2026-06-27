@@ -214,9 +214,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google-cloud/logging@npm:^11.2.2":
-  version: 11.2.2
-  resolution: "@google-cloud/logging@npm:11.2.2"
+"@google-cloud/logging@npm:^11.2.3":
+  version: 11.2.3
+  resolution: "@google-cloud/logging@npm:11.2.3"
   dependencies:
     "@google-cloud/common": "npm:^5.0.0"
     "@google-cloud/paginator": "npm:^5.0.0"
@@ -235,7 +235,7 @@ __metadata:
     on-finished: "npm:^2.3.0"
     pumpify: "npm:^2.0.1"
     stream-events: "npm:^1.0.5"
-  checksum: 10c0/b7babdda5742bfdbeddff634e32a7837f21602a0a31a8d9f01d446b72439bedb689483c7249f4a8bb340669c809363ce1dfb6c3ef487d166bbc09c13a8bc79a8
+  checksum: 10c0/cc251147ae1f55ea3004e12ceed607de71b78db29beaf34e4dc204daeb6967462eb1d0e591c0d9393b1689ca4a96a0cae880ac46a40f7ccf6150b89a729c77dc
   languageName: node
   linkType: hard
 
@@ -876,15 +876,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"axios@npm:^1.17.0":
-  version: 1.17.0
-  resolution: "axios@npm:1.17.0"
+"axios@npm:^1.18.0":
+  version: 1.18.0
+  resolution: "axios@npm:1.18.0"
   dependencies:
     follow-redirects: "npm:^1.16.0"
     form-data: "npm:^4.0.5"
     https-proxy-agent: "npm:^5.0.1"
     proxy-from-env: "npm:^2.1.0"
-  checksum: 10c0/c4fa19ff3a3a63bde48beec03ad816b133b9a6385cccffffe172577ab18c6a70e299280d57f12c80c867fe25df41f92cb91d3a8258708a6d2be3e9e085f92650
+  checksum: 10c0/f88aae13fd9dd395dea3053c7299178fee62f436f20424a1d6d79ec11ffb7656ba664b4630defbadab2c387b6ea07e29afb9f28b26d8e0e49d45be766983290d
   languageName: node
   linkType: hard
 
@@ -1049,11 +1049,11 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "clubhouse-backend@workspace:."
   dependencies:
-    "@google-cloud/logging": "npm:^11.2.2"
+    "@google-cloud/logging": "npm:^11.2.3"
     "@types/chai": "npm:^5.2.3"
     ajv: "npm:^8.20.0"
     ajv-formats: "npm:^3.0.1"
-    axios: "npm:^1.17.0"
+    axios: "npm:^1.18.0"
     body-parser: "npm:^2.2.2"
     chai: "npm:^6.2.2"
     compression: "npm:^1.8.1"
