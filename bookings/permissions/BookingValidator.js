@@ -138,7 +138,8 @@ const validators = {
                      "create" : [ checkCourtSchedule, checkMatchBookingDate, checkStartAndEndTime, checkBookingDuration ],
                      "cancel" : [ isActive, checkCancelTimeframe],
                      "end": [ isActive, isOngoing, isNotFreshBooking],
-                     "move": [ isActive, checkBookingNotEnded ]
+                     "move": [ isActive, checkBookingNotEnded ],
+                     "change_note": [ isActive, checkBookingNotEnded ]
                     }
 
 

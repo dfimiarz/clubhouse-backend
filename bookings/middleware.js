@@ -8,7 +8,7 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 function checkBookingPermissions(req, res, next) {
   const booking = res.locals.booking;
 
-  const permissions = ["cancel", "end", "move"];
+  const permissions = ["cancel", "end", "move", "change_note"];
 
   permissions.forEach((permission) => {
     //console.log("Checking",permission);

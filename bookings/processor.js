@@ -378,9 +378,80 @@ async function changeCourt(id, cmd) {
 
 
 
+async function changeNote(id, cmd) {
+
+    const etag = cmd.hash;
+    const new_note = typeof cmd.note === "string" ? cmd.note.trim() : "";
+
+    const update_note_q = `UPDATE activity SET notes = ? WHERE id = ?`
+
+    const connection = await sqlconnector.getConnection();
+
+    try {
+
+        await sqlconnector.runQuery(connection, "START TRANSACTION READ WRITE", []);
+
+        try {
+            const booking = await getBooking(connection, id, transactionType.WRITE_TRANSACTION);
+
+            if (!booking) {
+                log(appLogLevels.ERROR, "Unable to change note. Booking access error: " + JSON.stringify({ id: id, hash: cmd.hash }));
+                throw new RESTError(422, "Unable to read booknig data");
+            }
+
+            if( booking.club_id != CLUB_ID){
+                log(appLogLevels.ERROR, `Booking ${id} does not belong to club ${CLUB_ID}`);
+                throw new RESTError(422, "Booking does not belong to this club");
+            }
+
+            if( booking.etag != etag){
+                log(appLogLevels.ERROR, `Booking ${id} etag mismatch`);
+                throw new RESTError(422, "Booking has changed. Please refresh");
+            }
+
+            //Check permissions to change note
+            const errors = checkPermission('change_note', booking);
+
+            if (errors.length > 0) {
+                log(appLogLevels.WARNING, "Unable to change note. Permission denied: " + JSON.stringify(errors));
+                throw new RESTError(422, "Permission to change note denied: " + errors[0]);
+            }
+
+            //Unchanged note would not bump activity.updated (ON UPDATE timestamp skips no-op writes),
+            //so the etag would stay stale — reject like changeCourt does for an unchanged court
+            if ((booking.notes ?? "") === new_note) {
+                log(appLogLevels.WARNING, "Note has not changed: " + JSON.stringify({ booking_id: booking.id }));
+                throw new RESTError(422, "Note has not changed");
+            }
+
+            await sqlconnector.runQuery(connection, update_note_q, [new_note, id]);
+
+            await sqlconnector.runQuery(connection, "COMMIT", []);
+
+            log(appLogLevels.INFO, "Booking note changed: " + JSON.stringify({ booking_id: booking.id }));
+
+            return booking.date;
+
+        }
+        catch (err) {
+
+            await sqlconnector.runQuery(connection, "ROLLBACK", [])
+            throw err
+
+        }
+    }
+    finally {
+        connection.release()
+    }
+
+}
+
+
+
 module.exports = {
     endSession,
     removeSession,
     changeSessionTime,
     changeCourt,
+    changeNote,
 }

@@ -71,6 +71,25 @@ commands['CHANGE_COURT'] = {
                                 processor: 'changeCourt' 
                             }
 
+commands['CHANGE_NOTE'] = {
+                                vschema: {
+                                    "id":"CHANGE_NOTE_SCHEMA",
+                                    "type": "object",
+                                    "properties":{
+                                        "hash":{
+                                            "type": "string",
+                                            "pattern": /[a-fA-F0-9]{32}/
+                                        },
+                                        "note":{
+                                            "type": "string",
+                                            "maxLength": 256
+                                        }
+                                    },
+                                    "required": ["hash","note"]
+                                },
+                                processor: 'changeNote'
+                            }
+
 function hasCommand(cmd_name) {
     return Object.keys(commands).includes(cmd_name) ? true : false
 }
