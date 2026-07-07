@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "watch": "node --watch server.js",
-    "test": "mocha --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
+    "test": "mocha --exit --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
   },
   "dependencies": {
     "@google-cloud/logging": "^11.2.3",
