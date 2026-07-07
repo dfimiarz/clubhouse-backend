@@ -22,21 +22,53 @@ async function getMembers() {
   }
 }
 
+const SEARCH_RESULT_LIMIT = 20;
+
+/**
+ * Escape LIKE wildcards so the search term is matched literally
+ */
+function escapeLikeTerm(term) {
+  return term.replace(/[\\%_]/g, "\\$&");
+}
+
 /**
  * Returns a list of persons active membership. This includes guests with active status.
+ *
+ * @param {Object} [filters]
+ * @param {number[]} [filters.ids] Return exactly these persons (takes precedence over search)
+ * @param {string} [filters.search] Case-insensitive name search, results limited to 20
+ * @param {boolean} [filters.host] Restrict to guest hosts (guest_host = 1)
  */
-async function getActivePersons() {
+async function getActivePersons({ ids, search, host } = {}) {
   const connection = await sqlconnector.getConnection();
-  const member_query = `SELECT m.* FROM membership_view m 
-                  JOIN club c on c.id = m.club 
-                  WHERE DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from 
-                  AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < m.valid_until 
+
+  let member_query = `SELECT m.* FROM membership_view m
+                  JOIN club c on c.id = m.club
+                  WHERE DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from
+                  AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < m.valid_until
                   and m.club = ?`;
-  const passes_query = `SELECT gp.id,guest_id,gp.type,gpt.label FROM clubhouse.guest_pass gp 
-    join person p on p.id = gp.guest_id 
-    join club c on p.club = c.id 
+  const member_values = [club_id];
+
+  if (host) {
+    member_query += ` AND m.guest_host = 1`;
+  }
+
+  if (Array.isArray(ids) && ids.length > 0) {
+    member_query += ` AND m.id IN (?)`;
+    member_values.push(ids);
+  } else if (search) {
+    const term = `%${escapeLikeTerm(search)}%`;
+    member_query += ` AND (m.firstname LIKE ? OR m.lastname LIKE ? OR CONCAT(m.firstname,' ',m.lastname) LIKE ?)
+                  ORDER BY m.lastname, m.firstname
+                  LIMIT ${SEARCH_RESULT_LIMIT}`;
+    member_values.push(term, term, term);
+  }
+
+  const passes_query = `SELECT gp.id,guest_id,gp.type,gpt.label FROM clubhouse.guest_pass gp
+    join person p on p.id = gp.guest_id
+    join club c on p.club = c.id
     join guest_pass_type gpt on gpt.id = gp.type
-    WHERE 
+    WHERE
     c.id = ? AND
     gp.valid = 1 AND
     convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone) BETWEEN gp.valid_from and gp.valid_to`;
@@ -54,7 +86,11 @@ async function getActivePersons() {
       return acc;
     }, {});
 
-    const persons = await sqlconnector.runQuery(connection, member_query, club_id);
+    const persons = await sqlconnector.runQuery(
+      connection,
+      member_query,
+      member_values
+    );
 
     //Loop through persons and add active pass info to each guest
     persons.forEach((person) => {

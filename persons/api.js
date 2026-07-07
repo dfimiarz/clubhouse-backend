@@ -1,5 +1,5 @@
 const express = require('express')
-const { check, validationResult, body } = require('express-validator')
+const { check, validationResult, body, query } = require('express-validator')
 const controller = require('./controller')
 const RESTError = require('./../utils/RESTError');
 const { authGuard } = require('../middleware/clientauth')
@@ -48,11 +48,30 @@ router.get('/eventhosts', authGuard, (req, res, next) => {
 })
 
 /**
- * Route to get all active persons
+ * Route to get active persons, optionally filtered by name search,
+ * a list of ids (takes precedence over search), or guest host status.
+ * Without params returns the full active list.
  */
-router.get('/active', authGuard, (req, res, next) => {
+router.get('/active', authGuard, [
+     query('search').optional().isString().trim().isLength({ min: 2, max: 50 }).withMessage("Search must be between 2 and 50 characters"),
+     query('ids').optional().matches(/^\d+(,\d+)*$/).withMessage("ids must be a comma separated list of integers")
+          .custom((value) => value.split(',').length <= 10).withMessage("Too many ids"),
+     query('host').optional().isIn(['1']).withMessage("host must be 1")
+], (req, res, next) => {
 
-     controller.getActivePersons()
+     const errors = validationResult(req);
+
+     if (!errors.isEmpty()) {
+          return next(new RESTError(422, { fielderrors: formatFieldErrors(errors) }))
+     }
+
+     const filters = {
+          search: req.query.search ? String(req.query.search).trim() : undefined,
+          ids: req.query.ids ? req.query.ids.split(',').map(Number) : undefined,
+          host: req.query.host === '1'
+     }
+
+     controller.getActivePersons(filters)
      .then((persons) => {
           res.json(persons)
      })
