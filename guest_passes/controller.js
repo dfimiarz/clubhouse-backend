@@ -1,4 +1,6 @@
 const sqlconnector = require("../db/SqlConnector");
+const redisconnector = require("../db/RedisConnector");
+const { log, appLogLevels } = require("../utils/logger/logger");
 const club_id = process.env.CLUB_ID;
 //const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("../utils/RESTError");
@@ -205,6 +207,14 @@ const addGuestPass = async (passinfo) => {
       );
 
       await sqlconnector.runQuery(connection, "COMMIT", []);
+
+      //Invalidate the active-persons cache so the new pass is reflected immediately.
+      //Best effort: the cache TTL bounds staleness if the delete fails.
+      try {
+        await redisconnector.deleteKey(`active_persons_${club_id}`);
+      } catch (error) {
+        log(appLogLevels.WARNING, `Error invalidating active persons cache: ${error}`);
+      }
 
       return {
         id: guest_pass_res.insertId,

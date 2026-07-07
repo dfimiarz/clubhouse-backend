@@ -1,5 +1,8 @@
 const sqlconnector = require("../db/SqlConnector");
+const redisconnector = require("../db/RedisConnector");
 const club_id = process.env.CLUB_ID;
+const ACTIVE_PERSONS_CACHE_KEY = `active_persons_${club_id}`;
+const ACTIVE_PERSONS_CACHE_TTL_SECONDS = 60;
 const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("./../utils/RESTError");
 const { log, appLogLevels } = require('./../utils/logger/logger');
@@ -25,44 +28,30 @@ async function getMembers() {
 const SEARCH_RESULT_LIMIT = 20;
 
 /**
- * Escape LIKE wildcards so the search term is matched literally
+ * Lowercase and strip diacritics so name matching is accent-insensitive,
+ * mirroring the utf8mb4_0900_ai_ci collation used by the database.
  */
-function escapeLikeTerm(term) {
-  return term.replace(/[\\%_]/g, "\\$&");
+function foldAccents(value) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 /**
- * Returns a list of persons active membership. This includes guests with active status.
+ * Fetch the full, unfiltered list of active persons for the club from the
+ * database, with active guest-pass info already merged onto each guest.
  *
- * @param {Object} [filters]
- * @param {number[]} [filters.ids] Return exactly these persons (takes precedence over search)
- * @param {string} [filters.search] Case-insensitive name search, results limited to 20
- * @param {boolean} [filters.host] Restrict to guest hosts (guest_host = 1)
+ * @returns {Promise<Array>} Full active-persons list
  */
-async function getActivePersons({ ids, search, host } = {}) {
+async function fetchActivePersonsFromDB() {
   const connection = await sqlconnector.getConnection();
 
-  let member_query = `SELECT m.* FROM membership_view m
+  const member_query = `SELECT m.* FROM membership_view m
                   JOIN club c on c.id = m.club
                   WHERE DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from
                   AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < m.valid_until
                   and m.club = ?`;
-  const member_values = [club_id];
-
-  if (host) {
-    member_query += ` AND m.guest_host = 1`;
-  }
-
-  if (Array.isArray(ids) && ids.length > 0) {
-    member_query += ` AND m.id IN (?)`;
-    member_values.push(ids);
-  } else if (search) {
-    const term = `%${escapeLikeTerm(search)}%`;
-    member_query += ` AND (m.firstname LIKE ? OR m.lastname LIKE ? OR CONCAT(m.firstname,' ',m.lastname) LIKE ?)
-                  ORDER BY m.lastname, m.firstname
-                  LIMIT ${SEARCH_RESULT_LIMIT}`;
-    member_values.push(term, term, term);
-  }
 
   const passes_query = `SELECT gp.id,guest_id,gp.type,gpt.label FROM clubhouse.guest_pass gp
     join person p on p.id = gp.guest_id
@@ -86,11 +75,9 @@ async function getActivePersons({ ids, search, host } = {}) {
       return acc;
     }, {});
 
-    const persons = await sqlconnector.runQuery(
-      connection,
-      member_query,
-      member_values
-    );
+    const persons = await sqlconnector.runQuery(connection, member_query, [
+      club_id,
+    ]);
 
     //Loop through persons and add active pass info to each guest
     persons.forEach((person) => {
@@ -106,6 +93,76 @@ async function getActivePersons({ ids, search, host } = {}) {
   } finally {
     connection.release();
   }
+}
+
+/**
+ * Returns a list of persons active membership. This includes guests with active status.
+ *
+ * Reads the full active list from a Redis cache (cache-aside) and applies the
+ * filters in Node. On a cache miss or Redis error, falls back to the database.
+ *
+ * @param {Object} [filters]
+ * @param {number[]} [filters.ids] Return exactly these persons (takes precedence over search)
+ * @param {string} [filters.search] Case-insensitive name search, results limited to 20
+ * @param {boolean} [filters.host] Restrict to guest hosts (guest_host = 1)
+ */
+async function getActivePersons({ ids, search, host } = {}) {
+  let persons = null;
+  
+  //Try the cache first
+  try {
+    persons = await redisconnector.getJSON(ACTIVE_PERSONS_CACHE_KEY);
+  } catch (error) {
+    log(appLogLevels.ERROR, `Error retrieving active persons from cache: ${error}`);
+  }
+
+  //Cache miss (or Redis error): fall back to the DB and repopulate the cache
+  if (!persons) {
+    persons = await fetchActivePersonsFromDB();
+
+    try {
+      await redisconnector.storeJSON(
+        ACTIVE_PERSONS_CACHE_KEY,
+        persons,
+        ACTIVE_PERSONS_CACHE_TTL_SECONDS
+      );
+    } catch (error) {
+      log(appLogLevels.ERROR, `Error storing active persons to cache: ${error}`);
+    }
+  }
+
+  let results = persons;
+
+  if (host) {
+    results = results.filter((person) => person.guest_host === 1);
+  }
+
+  if (Array.isArray(ids) && ids.length > 0) {
+    const idSet = new Set(ids);
+    results = results.filter((person) => idSet.has(person.id));
+  } else if (search) {
+    const term = foldAccents(search);
+    results = results
+      .filter((person) => {
+        const firstname = foldAccents(person.firstname);
+        const lastname = foldAccents(person.lastname);
+        const fullname = `${firstname} ${lastname}`;
+        return (
+          firstname.includes(term) ||
+          lastname.includes(term) ||
+          fullname.includes(term)
+        );
+      })
+      .sort((a, b) => {
+        const lastCmp = (a.lastname || "").localeCompare(b.lastname || "");
+        return lastCmp !== 0
+          ? lastCmp
+          : (a.firstname || "").localeCompare(b.firstname || "");
+      })
+      .slice(0, SEARCH_RESULT_LIMIT);
+  }
+
+  return results;
 }
 
 async function getClubManagers() {
@@ -225,7 +282,15 @@ async function addGuest(request) {
       ]);
 
       await sqlconnector.runQuery(connection, "COMMIT", []);
-      
+
+      //Invalidate the active-persons cache so the new guest shows up immediately.
+      //Best effort: the cache TTL bounds staleness if the delete fails.
+      try {
+        await redisconnector.deleteKey(ACTIVE_PERSONS_CACHE_KEY);
+      } catch (error) {
+        log(appLogLevels.WARNING, `Error invalidating active persons cache: ${error}`);
+      }
+
       log(appLogLevels.INFO, `Guest added: ${JSON.stringify({ firstname: formattedFirstName, lastname: formattedLastName, email: email, phone: phone })}`);
     } catch (error) {
       await sqlconnector.runQuery(connection, "ROLLBACK", []);

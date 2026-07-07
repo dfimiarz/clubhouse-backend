@@ -13,8 +13,13 @@ async function getClubInfo() {
 
     const redisKey = `club_info_${CLUB_ID}`;
 
-    //Check if club info is in redis
-    const clubInfo = await getJSON(redisKey);
+    //Check if club info is in redis; on Redis errors fall back to the database
+    let clubInfo = null;
+    try {
+        clubInfo = await getJSON(redisKey);
+    } catch (error) {
+        log(appLogLevels.ERROR, `Error retrieving club info from cache: ${error}`);
+    }
 
     if (clubInfo) {
         return clubInfo;
@@ -109,8 +114,12 @@ async function getClubInfo() {
             result.about_sections = [];
         }
 
-        //Store club info in redis
-        await storeJSON(redisKey, result);
+        //Store club info in redis; a cache failure should not fail the request
+        try {
+            await storeJSON(redisKey, result);
+        } catch (error) {
+            log(appLogLevels.ERROR, `Error storing club info to cache: ${error}`);
+        }
 
         return result;
 

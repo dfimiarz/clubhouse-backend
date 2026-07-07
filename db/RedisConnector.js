@@ -7,33 +7,56 @@ const client = new Redis({
   username: "default",
   password: process.env.REDIS_PASSWORD,
   db: 0,
+  //Fail fast when Redis is unavailable so callers can fall back to the DB
+  //instead of stalling behind reconnect retries
+  maxRetriesPerRequest: 1,
+  commandTimeout: 500,
+});
+
+client.on("error", (err) => {
+  log(appLogLevels.WARNING, `Redis client error: ${err}`);
 });
 
 /**
- *  Get a value from redis
+ * Get a JSON value from redis.
+ *
+ * Throws on Redis/parse errors; callers decide how to handle failures.
+ *
  * @param {string} key
- * @returns {Object} value
- * */
+ * @returns {Promise<Object|null>} Parsed value, or null if the key is missing
+ */
 async function getJSON(key) {
-  try {
-    const redisData = await client.call("JSON.GET",key);
-    return JSON.parse(redisData);
-  } catch (err) {
-    log(appLogLevels.ERROR, `Error getting info from redis: ${err}`);
+  const redisData = await client.get(key);
+  return redisData === null ? null : JSON.parse(redisData);
+}
+
+/**
+ * Store a JSON value in redis.
+ *
+ * Throws on Redis errors; callers decide how to handle failures.
+ *
+ * @param {String} key Key to set
+ * @param {Object} data Data to set
+ * @param {number} [ttlSeconds] Optional expiry in seconds
+ */
+async function storeJSON(key, data, ttlSeconds) {
+  const payload = JSON.stringify(data);
+  if (ttlSeconds) {
+    await client.set(key, payload, "EX", ttlSeconds);
+  } else {
+    await client.set(key, payload);
   }
 }
 
 /**
- * Store a value in redis
- * @param {String} key Key to set
- * @param {Object} data Data to set
+ * Delete a key from redis.
+ *
+ * Throws on Redis errors; callers decide how to handle failures.
+ *
+ * @param {String} key Key to delete
  */
-async function storeJSON(key, data) {
-  try {
-    const result = await client.call("JSON.SET",key, "$", JSON.stringify(data));
-  } catch (err) {
-    log(appLogLevels.WARNING, `Error saving value to redis: ${err}`);
-  }
+async function deleteKey(key) {
+  await client.del(key);
 }
 
 /**
@@ -48,4 +71,5 @@ module.exports = {
   getClient,
   storeJSON,
   getJSON,
+  deleteKey,
 };
