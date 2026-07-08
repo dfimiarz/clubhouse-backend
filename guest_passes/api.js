@@ -16,6 +16,10 @@ router.post(
     body("guest").isInt().withMessage("Invalid guest id"),
     body("host").isInt().withMessage("Invalid host id"),
     body("pass_type").isInt().withMessage("Invalid pass type"),
+    body("valid_from")
+      .optional({ values: "null" })
+      .isDate({ format: "YYYY-MM-DD", strictMode: true })
+      .withMessage("Invalid start date"),
   ],
   (req, res, next) => {
     const errors = validationResult(req);
@@ -29,12 +33,12 @@ router.post(
       );
     }
 
-    //Get guest, host and pass type from request body
-    const { guest, host, pass_type } = req.body;
+    //Get guest, host, pass type and optional start date from request body
+    const { guest, host, pass_type, valid_from } = req.body;
 
     //Insert a new guest pass
     controller
-      .addGuestPass({ guest, host, pass_type })
+      .addGuestPass({ guest, host, pass_type, valid_from })
       .then((result) => {
         res.json(result);
       })

@@ -131,6 +131,33 @@ const addGuestPass = async (passinfo) => {
       /** @type {string} */
       const pass_type_label = pass_type_res[0].label;
 
+      if (valid_days < 1) {
+        throw new RESTError(400, "Invalid pass configuration");
+      }
+
+      //Pass is valid from the beginning of the requested day (club time zone).
+      //Defaults to today when no start date is provided.
+      const today = dayjs().tz(time_zone).startOf("day");
+      const valid_from = passinfo.valid_from
+        ? dayjs.tz(passinfo.valid_from, time_zone).startOf("day")
+        : today;
+
+      if (!valid_from.isValid()) {
+        throw new RESTError(400, "Invalid start date");
+      }
+
+      if (valid_from.isBefore(today)) {
+        throw new RESTError(400, "Pass cannot start in the past");
+      }
+
+      //Throw error if valid_from falls outside the season (season end is exclusive)
+      if (
+        valid_from.isBefore(season_start) ||
+        !valid_from.isBefore(season_end)
+      ) {
+        throw new RESTError(400, "Pass is not available");
+      }
+
       //Get passes for a given time frame
       const passes = await _getGuestPasses(
         connection,
@@ -139,19 +166,23 @@ const addGuestPass = async (passinfo) => {
         season_end
       );
 
-      //console.log(passes);
+      //Find a pass that already covers the requested start date.
+      //Dates are stored as club-local datetimes, so compare formatted strings.
+      const req_from_str = valid_from.format("YYYY-MM-DD HH:mm:ss");
+      const covering_pass = passes.find((pass) => {
+        const pass_from = dayjs(pass.valid_from).format("YYYY-MM-DD HH:mm:ss");
+        const pass_to = dayjs(pass.valid_to).format("YYYY-MM-DD HH:mm:ss");
+        return req_from_str >= pass_from && req_from_str <= pass_to;
+      });
 
-      //Find if there is an active pass already for the guest
-      const active_pass = passes.find((pass) => pass.active === 1);
-
-      //If there is an active pass, return pass info
-      if (active_pass) {
+      //If a pass already covers the start date, return pass info
+      if (covering_pass) {
         await sqlconnector.runQuery(connection, "COMMIT", []);
 
         return {
-          id: active_pass.id,
-          label: active_pass.label,
-          type: active_pass.type,
+          id: covering_pass.id,
+          label: covering_pass.label,
+          type: covering_pass.type,
         };
       }
 
@@ -164,18 +195,6 @@ const addGuestPass = async (passinfo) => {
         if (passCountForGuest >= season_limit) {
           throw new RESTError(400, "Guest has reached the season limit");
         }
-      }
-
-      if (valid_days < 1) {
-        throw new RESTError(400, "Invalid pass configuration");
-      }
-
-      //Pass is valid from beinging of the day
-      const valid_from = dayjs().tz(time_zone).startOf("day");
-
-      //Throw error if valid_from is before season start
-      if (valid_from.isBefore(season_start)) {
-        throw new RESTError(400, "Pass is not available");
       }
 
       //Pass is valid to valid_from + valid_days - 1

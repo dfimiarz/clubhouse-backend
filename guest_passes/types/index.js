@@ -3,6 +3,7 @@
  * @property {Number} host Host ID
  * @property {Number} guest Guest ID
  * @property {Number} pass_type Pass Type
+ * @property {String} [valid_from] Pass start date as YYYY-MM-DD in club time zone. Defaults to today.
  */
 
 /**
