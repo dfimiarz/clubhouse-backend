@@ -37,7 +37,8 @@ async function getBookingsForDate(date) {
         m.role as person_role_id,
         r.lbl as person_role_label,
         r.type as person_role_type_id,
-        rt.label as person_role_type_label
+        rt.label as person_role_type_label,
+        rt.requires_pass as person_requires_pass
       FROM participant p 
       JOIN person on person.id = p.person
       JOIN club c on c.id = person.club
@@ -143,7 +144,8 @@ async function getBookingsForDate(date) {
             person_role_id: player.person_role_id,
             person_role_type_id:  player.person_role_type_id,
             person_role_label: player.person_role_label,
-            person_role_type_label: player.person_role_type_label
+            person_role_type_label: player.person_role_type_label,
+            person_requires_pass: player.person_requires_pass
           });
           bookings.set(activity_id, activity);
         }

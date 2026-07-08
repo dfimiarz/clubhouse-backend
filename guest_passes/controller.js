@@ -5,8 +5,6 @@ const club_id = process.env.CLUB_ID;
 //const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("../utils/RESTError");
 
-const CONSTANTS = require("./../utils/dbconstants");
-
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
@@ -53,7 +51,7 @@ const addGuestPass = async (passinfo) => {
       AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < cs.end
     FOR SHARE`;
 
-  const role_check_q = `SELECT mv.role_type_id,guest_host 
+  const role_check_q = `SELECT mv.role_type_id,guest_host,requires_pass
                         FROM membership_view mv 
                         JOIN club c ON c.id = mv.club
                         WHERE mv.id = ? AND club = ? 
@@ -112,10 +110,8 @@ const addGuestPass = async (passinfo) => {
         throw new RESTError(400, "Guest not found");
       }
 
-      //Check if person designated as guest is actually a guest
-      const guest_role_type = guest_data_res[0].role_type_id;
-
-      if (guest_role_type !== CONSTANTS.ROLE_TYPES.GUEST_TYPE) {
+      //Check if person designated as guest actually plays on passes
+      if (guest_data_res[0].requires_pass !== 1) {
         throw new RESTError(400, "Invalid guest");
       }
 

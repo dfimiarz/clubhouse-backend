@@ -6,7 +6,6 @@ import personsRouter from "../../persons/api.js";
 import personsController from "../../persons/controller.js";
 import sqlconnector from "../../db/SqlConnector.js";
 import redisconnector from "../../db/RedisConnector.js";
-import constants from "../../utils/dbconstants.js";
 import RESTError from "../../utils/RESTError.js";
 
 const originalGetActivePersons = personsController.getActivePersons;
@@ -227,12 +226,11 @@ describe("getActivePersons controller", () => {
       expect(result).to.deep.equal(memberRows);
     });
 
-    it("attaches active passes to guests only", async () => {
-      const GUEST = constants.ROLE_TYPES.GUEST_TYPE;
+    it("attaches active passes to pass-requiring persons only", async () => {
       memberRows = [
-        { id: 1, role_type_id: GUEST },
-        { id: 2, role_type_id: GUEST },
-        { id: 3, role_type_id: GUEST + 1 },
+        { id: 1, requires_pass: 1 },
+        { id: 2, requires_pass: 1 },
+        { id: 3, requires_pass: 0 },
       ];
       passRows = [
         { id: 71, guest_id: 1, type: 2, label: "Season Pass" },

@@ -60,6 +60,21 @@ async function getClubInfo() {
                             club = ?
                         ORDER BY sort_order`;
 
+    //Get roles with their role type info (global reference tables, not club-specific)
+    const roles_query = `SELECT
+                            role.id as id,
+                            role.lbl as label,
+                            role_type.id as type_id,
+                            role_type.label as type_label,
+                            role_type.event_host as event_host,
+                            role_type.guest_host as guest_host,
+                            role_type.requires_pass as requires_pass,
+                            role_type.public_label as public_label
+                        FROM
+                            role
+                        JOIN role_type ON role.type = role_type.id
+                        ORDER BY role.id`;
+
     const connection = await sqlconnector.getConnection();
 
     try {
@@ -113,6 +128,25 @@ async function getClubInfo() {
         else {
             result.about_sections = [];
         }
+
+        const roles_results = await sqlconnector.runQuery(connection, roles_query, []);
+
+        if (!Array.isArray(roles_results) || roles_results.length === 0) {
+            throw new Error("Unable to load roles");
+        }
+
+        result.roles = roles_results.map((role) => {
+            return {
+                id: role["id"],
+                label: role["label"],
+                type_id: role["type_id"],
+                type_label: role["type_label"],
+                event_host: role["event_host"],
+                guest_host: role["guest_host"],
+                requires_pass: role["requires_pass"],
+                public_label: role["public_label"]
+            }
+        });
 
         //Store club info in redis; a cache failure should not fail the request
         try {

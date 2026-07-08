@@ -8,8 +8,6 @@ const RESTError = require("./../utils/RESTError");
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../utils/utils");
 
-const constatnts = require("./../utils/dbconstants");
-
 /**
  *
  * @returns {Promise<Array>} List of club members
@@ -82,7 +80,7 @@ async function fetchActivePersonsFromDB() {
     //Loop through persons and add active pass info to each guest
     persons.forEach((person) => {
       if (
-        person.role_type_id === constatnts.ROLE_TYPES.GUEST_TYPE &&
+        person.requires_pass === 1 &&
         active_passes_hash[person.id]
       ) {
         person.pass = active_passes_hash[person.id];
