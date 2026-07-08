@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "watch": "node --watch server.js",
+    "cache:clear": "node scripts/clearcache.js",
     "test": "mocha --exit --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
   },
   "dependencies": {
