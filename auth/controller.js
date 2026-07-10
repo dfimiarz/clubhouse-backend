@@ -1,44 +1,7 @@
-const { v4: uuidv4 } = require('uuid');
-const { getClient } = require('./../db/RedisConnector')
-const svgCaptcha = require('svg-captcha')
-const RESTError = require('./../utils/RESTError');
 const sqlconnector = require('../db/SqlConnector');
 
-const EXP_TIME = 60; //Capcha expired in 120 seconds
 const USED_HCAPTCHA_TOKENS = new Map();
 const HCAPTCHA_TOKEN_TTL_MS = 2 * 60 * 1000;
-
-/**
- * 
- * @returns { Object } Captch params
- */
-async function getCaptcha() {
-
-    const captcha = svgCaptcha.create({ size: 5, noise: 2 });
-    const requestid = uuidv4();
-    const text = captcha.text;
-
-
-    await getClient().set(requestid, text, {
-        EX: EXP_TIME,
-        NX: true
-    });
-
-    return { svg: encodeURIComponent(captcha.data), reqid: requestid }
-
-}
-
-async function verifyCaptcha(requestid, text) {
-
-    const res = await getClient().get(requestid);
-
-    if (!res) {
-        throw new RESTError(422,{ fielderrors: [{ param: "captcha", msg: "Captcha expired"}]});
-    }
-
-    return res === text
-
-}
 
 /**
  * 
@@ -174,8 +137,6 @@ function _resetUsedHCaptchaTokens() {
 
 
 module.exports = {
-    getCaptcha,
-    verifyCaptcha,
     getUserRole,
     verifyhCaptcha,
     getAllowedHCaptchaHostnames,

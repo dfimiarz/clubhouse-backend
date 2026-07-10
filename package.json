@@ -15,7 +15,6 @@
     "@google-cloud/logging": "^11.2.3",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "axios": "^1.18.1",
     "body-parser": "^2.3.0",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
@@ -30,8 +29,6 @@
     "jsonschema": "^1.5.0",
     "mysql": "^2.18.1",
     "pusher": "^5.3.4",
-    "svg-captcha": "^1.4.0",
-    "uuid": "^13.0.0",
     "winston": "^3.19.0"
   },
   "devDependencies": {

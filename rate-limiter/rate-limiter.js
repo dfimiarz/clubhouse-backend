@@ -6,11 +6,6 @@ let APILimiter = rateLimit({
     max: 200 // limit each IP to 200 requests per windowMs
 })
 
-let captchaLimiter = rateLimit({
-    windowMs: 2 * 60 * 1000, // 2 minutes
-    max: 20 // limit each IP to 100 requests per windowMs
-})
-
 let guestRegistrationLimiter = rateLimit({
     windowMs: 10 * 60 * 1000,
     limit: (req, res) => (utils.isAuthenticated(res) ? 20 : 5),
@@ -29,7 +24,6 @@ let publicReadLimiter = rateLimit({
 
 module.exports = {
     apilimiter: APILimiter,
-    captchalimiter: captchaLimiter,
     guestregistrationlimiter: guestRegistrationLimiter,
     publicreadlimiter: publicReadLimiter
 }
