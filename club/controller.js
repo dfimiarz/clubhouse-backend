@@ -5,18 +5,19 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 const e = require('express');
 
 const CLUB_ID = process.env.CLUB_ID;
+const CLUB_INFO_CACHE_KEY = `club_info_${CLUB_ID}`;
+// Club config changes infrequently; TTL bounds staleness until cache:clear or a write-path invalidation exists
+const CLUB_INFO_CACHE_TTL_SECONDS = 300;
 
 /**
  * Retrieves club information for a given club_id
  */
 async function getClubInfo() {
 
-    const redisKey = `club_info_${CLUB_ID}`;
-
     //Check if club info is in redis; on Redis errors fall back to the database
     let clubInfo = null;
     try {
-        clubInfo = await getJSON(redisKey);
+        clubInfo = await getJSON(CLUB_INFO_CACHE_KEY);
     } catch (error) {
         log(appLogLevels.ERROR, `Error retrieving club info from cache: ${error}`);
     }
@@ -150,7 +151,7 @@ async function getClubInfo() {
 
         //Store club info in redis; a cache failure should not fail the request
         try {
-            await storeJSON(redisKey, result);
+            await storeJSON(CLUB_INFO_CACHE_KEY, result, CLUB_INFO_CACHE_TTL_SECONDS);
         } catch (error) {
             log(appLogLevels.ERROR, `Error storing club info to cache: ${error}`);
         }
