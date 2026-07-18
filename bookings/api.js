@@ -16,7 +16,8 @@ router.use(express.json())
  * Route to get all bookings for a date
  */
 router.get('/', authGuard, [
-     query('date').isISO8601().toDate().withMessage('Date must be in ISO8601 format'),
+     // Keep as YYYY-MM-DD string (do not .toDate()) to avoid timezone day-shift in SQL
+     query('date').isDate().withMessage('Invalid date'),
 ],
      (req, res, next) => {
 
