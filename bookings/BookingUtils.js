@@ -40,6 +40,8 @@ const booking_q = `SELECT c.id AS court_id,
                     WHERE
                         a.id = ? and cl.id = ?`;
 
+// Membership date predicates belong on the LEFT JOIN so participants
+// without a membership covering the booking date still appear (public_label null).
 const player_q = `SELECT 
                         activity, 
                         person as person_id, 
@@ -47,13 +49,20 @@ const player_q = `SELECT
                         p.lastname,
                         participant.type as player_type_id, 
                         pt.lbl as player_type_lbl,
-                        pt.desc as player_type_desc
+                        pt.desc as player_type_desc,
+                        rt.public_label as club_role_public_label
                 FROM
                     participant
                         JOIN
                     person p ON p.id = participant.person
                         JOIN
                     participant_type pt ON pt.id = participant.type
+                        LEFT JOIN membership m
+                          ON m.person_id = participant.person
+                          AND ? >= m.valid_from
+                          AND ? < m.valid_until
+                        LEFT JOIN role r ON r.id = m.role
+                        LEFT JOIN role_type rt ON rt.id = r.type
                 WHERE 
                     activity = ?`;
 
@@ -114,13 +123,20 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
 
     const booking_result = await sqlconnector.runQuery(connection, formatQuery(booking_q,t_type), [id, CLUB_ID]);
 
-    if (!(Array.isArray(booking_result) || booking_result.length === 0)) {
+    if (!Array.isArray(booking_result) || booking_result.length === 0) {
         return null;
     }
 
-    const players_result = await sqlconnector.runQuery(connection, formatQuery(player_q, t_type), [id]);
+    const bookingDate = booking_result[0]['date'];
 
-    if (!Array.isArray(players_result) || players_result.length === 0) {
+    // Param order matches player_q placeholders: valid_from, valid_until, activity id
+    const players_result = await sqlconnector.runQuery(
+        connection,
+        formatQuery(player_q, t_type),
+        [bookingDate, bookingDate, id]
+    );
+
+    if (!Array.isArray(players_result)) {
         return null;
     }
 
@@ -156,15 +172,20 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
     }
 
     players_result.forEach(pinfo => {
-        const player = {
+        // Guard against overlapping membership rows duplicating a participant
+        if (booking.players.some((p) => p.person_id === pinfo.person_id)) {
+            return;
+        }
+
+        booking.players.push({
             person_id: pinfo['person_id'],
             firstname: pinfo['firstname'],
             lastname: pinfo['lastname'],
             player_type_id: pinfo['player_type_id'],
             player_type_lbl: pinfo['player_type_lbl'],
             player_type_desc: pinfo['player_type_desc'],
-        }
-        booking.players.push(player)
+            club_role_public_label: pinfo['club_role_public_label'],
+        });
     });
 
     return booking;

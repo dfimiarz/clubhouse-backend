@@ -42,7 +42,8 @@ async function getBookingsForDate(date) {
         r.lbl as person_role_label,
         r.type as person_role_type_id,
         rt.label as person_role_type_label,
-        rt.requires_pass as person_requires_pass
+        rt.requires_pass as person_requires_pass,
+        rt.public_label as person_role_type_public_label
       FROM participant p
       JOIN person on person.id = p.person
       LEFT JOIN membership m
@@ -173,6 +174,7 @@ async function getBookingsForDate(date) {
         person_role_label: player.person_role_label,
         person_role_type_label: player.person_role_type_label,
         person_requires_pass: player.person_requires_pass,
+        person_role_type_public_label: player.person_role_type_public_label,
       });
     });
 
@@ -318,8 +320,11 @@ async function addBooking(request) {
 }
 
 /**
+ * Retrieves a single booking by id.
  *
- * @param { Number } Session id
+ * @param {number|string} id - Booking id
+ * @returns {Promise<Object>} Booking with players and empty permissions array
+ * @throws {RESTError} 404 if the booking is not found
  */
 async function getBookingData(id) {
   const OPCODE = "GET_BOOKING";
@@ -327,11 +332,29 @@ async function getBookingData(id) {
   const connection = await sqlconnector.getConnection();
 
   try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION", []);
+    await sqlconnector.runQuery(connection, "START TRANSACTION READ ONLY", []);
 
-    const booking = await getBooking(connection, id, transactionType.READ_TRANSACTION);
+    let booking;
 
-    await sqlconnector.runQuery(connection, "COMMIT", []);
+    try {
+      booking = await getBooking(
+        connection,
+        id,
+        transactionType.READ_TRANSACTION
+      );
+
+      await sqlconnector.runQuery(connection, "COMMIT", []);
+    } catch (error) {
+      try {
+        await sqlconnector.runQuery(connection, "ROLLBACK", []);
+      } catch (rollbackError) {
+        log(
+          appLogLevels.ERROR,
+          `Rollback failed after get booking error: ${rollbackError.message}`
+        );
+      }
+      throw error;
+    }
 
     if (!booking) {
       log(appLogLevels.ERROR, `Booking ${id} not found`);
@@ -340,7 +363,7 @@ async function getBookingData(id) {
 
     return booking;
   } catch (error) {
-    console.log(error);
+    log(appLogLevels.ERROR, `Unable to read booking ${id}: ${error.message}`);
     throw error instanceof RESTError
       ? error
       : new SQLErrorFactory.getError(OPCODE, error);

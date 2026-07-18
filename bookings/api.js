@@ -202,7 +202,8 @@ router.get('/:id', authGuard, (req, res, next) => {
                               'person_id': player.person_id,
                               'firstname': player.firstname,
                               'lastname': player.lastname,
-                              'player_type_desc': player.player_type_desc
+                              'player_type_desc': player.player_type_desc,
+                              'club_role': player.club_role_public_label
                          }
                     })
                }
