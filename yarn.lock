@@ -184,20 +184,20 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google-cloud/common@npm:^5.0.0":
-  version: 5.0.2
-  resolution: "@google-cloud/common@npm:5.0.2"
+"@google-cloud/common@npm:^6.0.0":
+  version: 6.0.1
+  resolution: "@google-cloud/common@npm:6.0.1"
   dependencies:
     "@google-cloud/projectify": "npm:^4.0.0"
     "@google-cloud/promisify": "npm:^4.0.0"
-    arrify: "npm:^2.0.1"
-    duplexify: "npm:^4.1.1"
+    arrify: "npm:^2.0.0"
+    duplexify: "npm:^4.1.3"
     extend: "npm:^3.0.2"
-    google-auth-library: "npm:^9.0.0"
+    google-auth-library: "npm:^10.0.0-rc.1"
     html-entities: "npm:^2.5.2"
-    retry-request: "npm:^7.0.0"
-    teeny-request: "npm:^9.0.0"
-  checksum: 10c0/c080fb91a789cb1d336dd91419df85861d00f01a650d9655ae1f0136dd5c2024660fb6b85ccc4f0d018f21e7a46c050001098bf24ecbaf954e46d3fe4f82a72f
+    retry-request: "npm:^8.0.0"
+    teeny-request: "npm:^10.0.0"
+  checksum: 10c0/46e595a04bd3650d9dc14e40284861250692ce308ca29023c4c4bdbcf2698bef5fc3ea440c93f0fbf0f43f80519edc340af6b9d65454db4911d05db423e9afc2
   languageName: node
   linkType: hard
 
@@ -214,11 +214,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google-cloud/logging@npm:^11.2.3":
-  version: 11.2.3
-  resolution: "@google-cloud/logging@npm:11.2.3"
+"@google-cloud/logging@npm:^11.3.0":
+  version: 11.3.0
+  resolution: "@google-cloud/logging@npm:11.3.0"
   dependencies:
-    "@google-cloud/common": "npm:^5.0.0"
+    "@google-cloud/common": "npm:^6.0.0"
     "@google-cloud/paginator": "npm:^5.0.0"
     "@google-cloud/projectify": "npm:^4.0.0"
     "@google-cloud/promisify": "npm:4.0.0"
@@ -226,16 +226,15 @@ __metadata:
     "@opentelemetry/api": "npm:^1.7.0"
     arrify: "npm:^2.0.1"
     dot-prop: "npm:^6.0.0"
-    eventid: "npm:^2.0.0"
     extend: "npm:^3.0.2"
     gcp-metadata: "npm:^6.0.0"
-    google-auth-library: "npm:^9.0.0"
+    google-auth-library: "npm:^10.6.2"
     google-gax: "npm:^4.0.3"
     long: "npm:^5.3.2"
     on-finished: "npm:^2.3.0"
     pumpify: "npm:^2.0.1"
     stream-events: "npm:^1.0.5"
-  checksum: 10c0/cc251147ae1f55ea3004e12ceed607de71b78db29beaf34e4dc204daeb6967462eb1d0e591c0d9393b1689ca4a96a0cae880ac46a40f7ccf6150b89a729c77dc
+  checksum: 10c0/2eeb89f5bc0199947bd009eebacd6b376c28fbb6a6c02154ca3d873d5c83be6a57a277c9c2482ac91a898e1d25b2d9098084fe458c1bf0f8c89508bdb843568b
   languageName: node
   linkType: hard
 
@@ -1054,7 +1053,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "clubhouse-backend@workspace:."
   dependencies:
-    "@google-cloud/logging": "npm:^11.2.3"
+    "@google-cloud/logging": "npm:^11.3.0"
     "@types/chai": "npm:^5.2.3"
     ajv: "npm:^8.20.0"
     ajv-formats: "npm:^3.0.1"
@@ -1064,7 +1063,7 @@ __metadata:
     cors: "npm:^2.8.6"
     dayjs: "npm:^1.11.21"
     dotenv: "npm:^17.4.2"
-    eslint: "npm:^10.6.0"
+    eslint: "npm:^10.7.0"
     express: "npm:^5.2.1"
     express-rate-limit: "npm:^8.5.2"
     express-validator: "npm:^7.3.2"
@@ -1530,9 +1529,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint@npm:^10.6.0":
-  version: 10.6.0
-  resolution: "eslint@npm:10.6.0"
+"eslint@npm:^10.7.0":
+  version: 10.7.0
+  resolution: "eslint@npm:10.7.0"
   dependencies:
     "@eslint-community/eslint-utils": "npm:^4.8.0"
     "@eslint-community/regexpp": "npm:^4.12.2"
@@ -1571,7 +1570,7 @@ __metadata:
       optional: true
   bin:
     eslint: bin/eslint.js
-  checksum: 10c0/ebe0261fc750afb7f1a0c5a14f5288e57b971e0bee9754b1620132d22ad0c23690183977b0c9514ffa7ad460768d689d3fb9792ad9267b6c6205e2e0c17d8563
+  checksum: 10c0/d9415f506730c098ab8897da39f5719cdf9d1026c9511c322d4a272677f904b7d43ff423d63ee941c9a03d74d1a75563ce2668886734b1f293b22e57911a6dd6
   languageName: node
   linkType: hard
 
@@ -1629,15 +1628,6 @@ __metadata:
   version: 5.0.1
   resolution: "event-target-shim@npm:5.0.1"
   checksum: 10c0/0255d9f936215fd206156fd4caa9e8d35e62075d720dc7d847e89b417e5e62cf1ce6c9b4e0a1633a9256de0efefaf9f8d26924b1f3c8620cffb9db78e7d3076b
-  languageName: node
-  linkType: hard
-
-"eventid@npm:^2.0.0":
-  version: 2.0.1
-  resolution: "eventid@npm:2.0.1"
-  dependencies:
-    uuid: "npm:^8.0.0"
-  checksum: 10c0/9b110094bb2e97d1ccfc04bcc26e9986c35d18e5e44c64b850c59b8c6beec06448b1e2eb7a3438d8f8fae9d82d84d6ad1f2369b76e8561854c1df502d6fcb3d4
   languageName: node
   linkType: hard
 
@@ -2161,6 +2151,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"google-auth-library@npm:^10.0.0-rc.1":
+  version: 10.9.0
+  resolution: "google-auth-library@npm:10.9.0"
+  dependencies:
+    base64-js: "npm:^1.3.0"
+    ecdsa-sig-formatter: "npm:^1.0.11"
+    gaxios: "npm:^7.1.4"
+    gcp-metadata: "npm:8.1.2"
+    google-logging-utils: "npm:1.1.3"
+    jws: "npm:^4.0.0"
+  checksum: 10c0/d731d0bff429c63e995a954f4a08ccbcdb159bff322c529c467e89a98de215fff6630ddf94c9a29a1737ab8d820ff5943b7131c51faabae04497f146d62636dc
+  languageName: node
+  linkType: hard
+
 "google-auth-library@npm:^10.6.2":
   version: 10.7.0
   resolution: "google-auth-library@npm:10.7.0"
@@ -2172,20 +2176,6 @@ __metadata:
     google-logging-utils: "npm:1.1.3"
     jws: "npm:^4.0.0"
   checksum: 10c0/e8827ff84a69bbd6573229d8245d8fbb8870304e255c213571541d039c33764a6f4a8d773c002a16d6d75e35b9a596310b5c6f8e25b189a02eb4cebd6f022321
-  languageName: node
-  linkType: hard
-
-"google-auth-library@npm:^9.0.0":
-  version: 9.14.0
-  resolution: "google-auth-library@npm:9.14.0"
-  dependencies:
-    base64-js: "npm:^1.3.0"
-    ecdsa-sig-formatter: "npm:^1.0.11"
-    gaxios: "npm:^6.1.1"
-    gcp-metadata: "npm:^6.1.0"
-    gtoken: "npm:^7.0.0"
-    jws: "npm:^4.0.0"
-  checksum: 10c0/f421e45ca4f22f54787b9fb81b51dea77f2a8847988ed32d9d8756e0c47dcf08b6e1f7f792c9e59faccff1f4f207fbf2c3001353238dd3fbba02e21f0b3d52a4
   languageName: node
   linkType: hard
 
@@ -3490,7 +3480,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"retry-request@npm:^8.0.2":
+"retry-request@npm:^8.0.0, retry-request@npm:^8.0.2":
   version: 8.0.3
   resolution: "retry-request@npm:8.0.3"
   dependencies:

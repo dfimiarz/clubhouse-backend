@@ -12,7 +12,7 @@
     "test": "mocha --exit --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
   },
   "dependencies": {
-    "@google-cloud/logging": "^11.2.3",
+    "@google-cloud/logging": "^11.3.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "body-parser": "^2.3.0",
@@ -34,7 +34,7 @@
   "devDependencies": {
     "@types/chai": "^5.2.3",
     "chai": "^6.2.2",
-    "eslint": "^10.6.0",
+    "eslint": "^10.7.0",
     "mocha": "^11.7.6",
     "supertest": "^7.2.2"
   }
