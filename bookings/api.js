@@ -16,7 +16,8 @@ router.use(express.json())
  * Route to get all bookings for a date
  */
 router.get('/', authGuard, [
-     query('date').isISO8601().toDate().withMessage('Date must be in ISO8601 format'),
+     // Keep as YYYY-MM-DD string (do not .toDate()) to avoid timezone day-shift in SQL
+     query('date').isDate().withMessage('Invalid date'),
 ],
      (req, res, next) => {
 
@@ -201,7 +202,8 @@ router.get('/:id', authGuard, (req, res, next) => {
                               'person_id': player.person_id,
                               'firstname': player.firstname,
                               'lastname': player.lastname,
-                              'player_type_desc': player.player_type_desc
+                              'player_type_desc': player.player_type_desc,
+                              'club_role': player.club_role_public_label
                          }
                     })
                }

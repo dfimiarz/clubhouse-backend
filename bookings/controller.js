@@ -18,16 +18,20 @@ const CLUB_ID = process.env.CLUB_ID;
 /**
  * Retrieves bookings for a specific date.
  *
- * @param {string} date - The date for which to retrieve bookings.
+ * @param {string} date - The date (YYYY-MM-DD) for which to retrieve bookings.
  * @returns {Promise<Array>} - A promise that resolves to an array of bookings.
  * @throws {Error} - If there is an error retrieving the bookings.
  */
 async function getBookingsForDate(date) {
+  const OPCODE = "GET_BOOKINGS_FOR_DATE";
+
   if (date === null) return [];
 
   const connection = await sqlconnector.getConnection();
-  const player_query =
-    ` SELECT 
+
+  // Membership date predicates belong on the LEFT JOIN so participants
+  // without a membership covering `date` still appear (role fields null).
+  const player_query = `SELECT
         p.activity,
         p.person as person_id,
         p.type as player_type_id,
@@ -38,19 +42,20 @@ async function getBookingsForDate(date) {
         r.lbl as person_role_label,
         r.type as person_role_type_id,
         rt.label as person_role_type_label,
-        rt.requires_pass as person_requires_pass
-      FROM participant p 
+        rt.requires_pass as person_requires_pass,
+        rt.public_label as person_role_type_public_label
+      FROM participant p
       JOIN person on person.id = p.person
-      JOIN club c on c.id = person.club
-      LEFT JOIN membership m on m.person_id = p.person
+      LEFT JOIN membership m
+        ON m.person_id = p.person
+        AND ? >= m.valid_from
+        AND ? < m.valid_until
       LEFT JOIN role r on r.id = m.role
       LEFT JOIN role_type rt on rt.id = r.type
-      WHERE p.activity in ( ? ) 
-      AND ? >= m.valid_from 
-      AND ? < m.valid_until 
+      WHERE p.activity in ( ? )
       ORDER BY activity FOR SHARE`;
 
-  const activity_query = `SELECT 
+  const activity_query = `SELECT
                                 activity.id,
                                 court,
                                 bumpable,
@@ -65,7 +70,7 @@ async function getBookingsForDate(date) {
                                 notes,
                                 at.desc AS booking_type_desc,
                                 at.group AS group_id,
-                                ag.utility_factor AS utility 
+                                ag.utility_factor AS utility
                             FROM
                                 activity
                                     JOIN
@@ -79,85 +84,106 @@ async function getBookingsForDate(date) {
                             WHERE
                                 date = ?
                                 AND active = 1
-                                AND cl.id = ? 
+                                AND cl.id = ?
                             FOR SHARE`;
-
-  let bookings = new Map();
 
   try {
     await sqlconnector.runQuery(connection, "START TRANSACTION READ ONLY", []);
 
-    let bookings_array = await sqlconnector.runQuery(
-      connection,
-      activity_query,
-      [date, CLUB_ID]
-    );
+    let bookings_array;
+    let players_array = [];
 
     try {
-      if (bookings_array.length === 0) {
-        return [];
-      }
-
-      bookings_array.forEach((element) => {
-        bookings.set(element.id, {
-          id: element.id,
-          court: element.court,
-          bumpable: element.bumpable,
-          date: element.date,
-          end: element.end,
-          start: element.start,
-          start_min: element.start_min,
-          end_min: element.end_min,
-          type: element.type,
-          notes: element.notes,
-          updated: element.updated,
-          created: element.created,
-          players: [],
-          booking_type_desc: element.booking_type_desc,
-          group_id: element.group_id,
-          utility: element.utility,
-        });
-      });
-
-      const booking_ids = Array.from(bookings.keys());
-
-      const players_array = await sqlconnector.runQuery(
+      bookings_array = await sqlconnector.runQuery(
         connection,
-        player_query,
-        [booking_ids,date,date]
+        activity_query,
+        [date, CLUB_ID]
       );
 
+      if (bookings_array.length > 0) {
+        const booking_ids = bookings_array.map((element) => element.id);
+
+        // Param order matches player_query placeholders: valid_from, valid_until, activity ids
+        players_array = await sqlconnector.runQuery(
+          connection,
+          player_query,
+          [date, date, booking_ids]
+        );
+      }
+
       await sqlconnector.runQuery(connection, "COMMIT", []);
-
-      players_array.forEach((player) => {
-        const activity_id = player.activity;
-
-        if (bookings.has(activity_id)) {
-          const activity = bookings.get(activity_id);
-          bookings.delete(activity_id);
-          activity.players.push({
-            person_id: player.person_id,
-            type_id: player.player_type_id,
-            status: player.status,
-            firstname: player.firstname,
-            lastname: player.lastname,
-            person_role_id: player.person_role_id,
-            person_role_type_id:  player.person_role_type_id,
-            person_role_label: player.person_role_label,
-            person_role_type_label: player.person_role_type_label,
-            person_requires_pass: player.person_requires_pass
-          });
-          bookings.set(activity_id, activity);
-        }
-      });
-
-      return Array.from(bookings.values());
-    } finally {
-      await sqlconnector.runQuery(connection, "COMMIT", []);
+    } catch (error) {
+      try {
+        await sqlconnector.runQuery(connection, "ROLLBACK", []);
+      } catch (rollbackError) {
+        log(
+          appLogLevels.ERROR,
+          `Rollback failed after read bookings error: ${rollbackError.message}`
+        );
+      }
+      throw error;
     }
+
+    if (bookings_array.length === 0) {
+      return [];
+    }
+
+    // Assemble response after commit so in-memory work cannot trigger a rollback
+    const bookings = new Map();
+
+    bookings_array.forEach((element) => {
+      bookings.set(element.id, {
+        id: element.id,
+        court: element.court,
+        bumpable: element.bumpable,
+        date: element.date,
+        end: element.end,
+        start: element.start,
+        start_min: element.start_min,
+        end_min: element.end_min,
+        type: element.type,
+        notes: element.notes,
+        updated: element.updated,
+        created: element.created,
+        players: [],
+        booking_type_desc: element.booking_type_desc,
+        group_id: element.group_id,
+        utility: element.utility,
+      });
+    });
+
+    players_array.forEach((player) => {
+      const activity = bookings.get(player.activity);
+      if (!activity) {
+        return;
+      }
+
+      // Guard against overlapping membership rows duplicating a participant
+      if (activity.players.some((p) => p.person_id === player.person_id)) {
+        return;
+      }
+
+      activity.players.push({
+        person_id: player.person_id,
+        type_id: player.player_type_id,
+        status: player.status,
+        firstname: player.firstname,
+        lastname: player.lastname,
+        person_role_id: player.person_role_id,
+        person_role_type_id: player.person_role_type_id,
+        person_role_label: player.person_role_label,
+        person_role_type_label: player.person_role_type_label,
+        person_requires_pass: player.person_requires_pass,
+        person_role_type_public_label: player.person_role_type_public_label,
+      });
+    });
+
+    return Array.from(bookings.values());
   } catch (error) {
     log(appLogLevels.ERROR, `Unable to read bookings: ${error.message}`);
-    throw new Error(error.sqlMessage);
+    throw error instanceof RESTError
+      ? error
+      : new SQLErrorFactory.getError(OPCODE, error);
   } finally {
     connection.release();
   }
@@ -294,8 +320,11 @@ async function addBooking(request) {
 }
 
 /**
+ * Retrieves a single booking by id.
  *
- * @param { Number } Session id
+ * @param {number|string} id - Booking id
+ * @returns {Promise<Object>} Booking with players and empty permissions array
+ * @throws {RESTError} 404 if the booking is not found
  */
 async function getBookingData(id) {
   const OPCODE = "GET_BOOKING";
@@ -303,11 +332,29 @@ async function getBookingData(id) {
   const connection = await sqlconnector.getConnection();
 
   try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION", []);
+    await sqlconnector.runQuery(connection, "START TRANSACTION READ ONLY", []);
 
-    const booking = await getBooking(connection, id, transactionType.READ_TRANSACTION);
+    let booking;
 
-    await sqlconnector.runQuery(connection, "COMMIT", []);
+    try {
+      booking = await getBooking(
+        connection,
+        id,
+        transactionType.READ_TRANSACTION
+      );
+
+      await sqlconnector.runQuery(connection, "COMMIT", []);
+    } catch (error) {
+      try {
+        await sqlconnector.runQuery(connection, "ROLLBACK", []);
+      } catch (rollbackError) {
+        log(
+          appLogLevels.ERROR,
+          `Rollback failed after get booking error: ${rollbackError.message}`
+        );
+      }
+      throw error;
+    }
 
     if (!booking) {
       log(appLogLevels.ERROR, `Booking ${id} not found`);
@@ -316,7 +363,7 @@ async function getBookingData(id) {
 
     return booking;
   } catch (error) {
-    console.log(error);
+    log(appLogLevels.ERROR, `Unable to read booking ${id}: ${error.message}`);
     throw error instanceof RESTError
       ? error
       : new SQLErrorFactory.getError(OPCODE, error);
