@@ -17,11 +17,9 @@ const { log, appLogLevels } = require('./utils/logger/logger');
 
 app.set("trust proxy", getTrustedProxySetting());
 
-const allowedHosts = [/localhost:5173$/, /\.clubhouse\.test:8081$/];
+const allowedHosts = getAllowedOrigins();
 
 console.log("Permitted client", allowedHosts);
-
-
 
 const corsOptions = {
   origin: allowedHosts,
@@ -108,6 +106,26 @@ function getTrustedProxySetting() {
 
   log(appLogLevels.ERROR, `Invalid TRUST_PROXY_MODE "${process.env.TRUST_PROXY_MODE}". Falling back to false.`);
   return false;
+}
+
+/**
+ * CORS allowlist.
+ *
+ * Production (same-origin nginx /api proxy): set CORS_ORIGINS to the public
+ * site origin(s), e.g. "https://knicktennis.net,https://www.knicktennis.net".
+ * Falls back to local Vite / clubhouse.test patterns when unset.
+ */
+function getAllowedOrigins() {
+  const fromEnv = (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (fromEnv.length > 0) {
+    return fromEnv;
+  }
+
+  return [/localhost:5173$/, /\.clubhouse\.test:8081$/];
 }
 
 module.exports = app;

@@ -1,6 +1,37 @@
 **/node_modules
 **/dist
 .git
+.github
 .cache
+.claude
+.DS_Store
+
+# Local env and secrets — never bake into the image
+.env
+.env.*
+!.env.example
+_.env
+cred/
+**/service_account*.json
+**/firebase-admin-cred.json
+**/*_service_account*.json
+
+# Dev / test / docs noise
+tests/
 *.md
 !README.md
+.vscode
+.editorconfig
+.eslintrc.json
+.pnp.cjs
+.pnp.loader.mjs
+.yarn/cache
+.yarn/install-state.gz
+.yarn/unplugged
+database_schema/**/*.sql
+dumpdb.sh
+versions.txt
+firebase.json
+_app.yaml
+app.yaml
+*.log
