@@ -1,4 +1,5 @@
 const mysql = require("mysql2/promise");
+const { log, appLogLevels } = require("../utils/logger/logger");
 
 // Configuration for the connection pool. See mysql2 docs for details.
 const config = {
@@ -10,7 +11,9 @@ const config = {
   port: process.env.SQL_PORT || 3306,
   connectTimeout: 10000,
   waitForConnections: true,
-  queueLimit: 0,
+  // Bounded so sustained pool exhaustion sheds load immediately instead of
+  // accumulating waiters that each burn ACQUIRE_TIMEOUT_MS before failing.
+  queueLimit: 50,
   timezone: "Z",
   dateStrings: true,
   // Allows :name binds alongside classic ? placeholders (query + execute).
@@ -95,11 +98,29 @@ async function runQuery(connection, query, values = []) {
  * Run a binary prepared statement. Prefer for stable SQL with scalar binds only.
  * Do not use for IN ? / VALUES ? bulk expansion or toSqlString values — use runQuery.
  *
+ * execute() goes through a server-side prepared statement, which has no
+ * client-side nested-array expansion: an array bind is sent as a single scalar
+ * and silently matches nothing rather than erroring. Reject it up front so the
+ * mistake surfaces here instead of as an empty result set downstream.
+ *
  * @param {import("mysql2/promise").PoolConnection} connection
  * @param {string} query
  * @param {Array|object|*} [values=[]]
  */
 async function runExecute(connection, query, values = []) {
+  // namedPlaceholders is on, so values may legitimately be a plain object.
+  const binds = Array.isArray(values)
+    ? values
+    : values && typeof values === "object"
+      ? Object.values(values)
+      : [];
+
+  if (binds.some(Array.isArray)) {
+    throw new TypeError(
+      "runExecute cannot expand array binds (IN ? / VALUES ?) — use runQuery"
+    );
+  }
+
   const [results] = await connection.execute(query, values);
   return results;
 }
@@ -151,8 +172,13 @@ async function withTransaction(fn, options = {}) {
     } catch (error) {
       try {
         await connection.rollback();
-      } catch {
-        // Prefer the original error from the transaction body.
+      } catch (rollbackError) {
+        // Still prefer the original error from the transaction body, but a
+        // failed rollback is worth knowing about on its own.
+        log(
+          appLogLevels.WARNING,
+          `Transaction rollback failed: ${rollbackError.message}`
+        );
       }
       throw error;
     }

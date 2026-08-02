@@ -210,7 +210,7 @@ const addGuestPass = async (passinfo) => {
       type: result.type,
     };
   } catch (err) {
-    console.log(err);
+    log(appLogLevels.ERROR, `Error activating guest pass: ${err.message}`);
     throw err instanceof RESTError
       ? err
       : new RESTError(500, "Unable to activate", err);

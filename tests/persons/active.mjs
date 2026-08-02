@@ -9,8 +9,9 @@ import redisconnector from "../../db/RedisConnector.js";
 import RESTError from "../../utils/RESTError.js";
 
 const originalGetActivePersons = personsController.getActivePersons;
-const originalGetConnection = sqlconnector.getConnection;
+const originalWithConnection = sqlconnector.withConnection;
 const originalRunQuery = sqlconnector.runQuery;
+const originalRunExecute = sqlconnector.runExecute;
 const originalGetJSON = redisconnector.getJSON;
 const originalStoreJSON = redisconnector.storeJSON;
 
@@ -186,20 +187,38 @@ describe("getActivePersons controller", () => {
       stored = data;
     };
 
-    sqlconnector.getConnection = async () => ({
-      release() {
-        released = true;
-      },
-    });
-    sqlconnector.runQuery = async (_connection, query, values) => {
+    // The controller borrows its connection through withConnection, which calls
+    // SqlConnector's module-local getConnection — reassigning the exported
+    // getConnection would not intercept it. Stub the wrapper itself, mirroring
+    // its release-in-finally contract so `released` still means something.
+    sqlconnector.withConnection = async (fn) => {
+      const connection = {
+        release() {
+          released = true;
+        },
+      };
+      try {
+        return await fn(connection);
+      } finally {
+        connection.release();
+      }
+    };
+
+    // Record through both helpers so the assertions stay valid whichever
+    // protocol the controller uses; swapping one for the other is exactly what
+    // silently broke these tests during the mysql2 migration.
+    const record = async (_connection, query, values) => {
       queries.push({ query, values });
       return query.includes("guest_pass") ? passRows : memberRows;
     };
+    sqlconnector.runQuery = record;
+    sqlconnector.runExecute = record;
   });
 
   afterEach(() => {
-    sqlconnector.getConnection = originalGetConnection;
+    sqlconnector.withConnection = originalWithConnection;
     sqlconnector.runQuery = originalRunQuery;
+    sqlconnector.runExecute = originalRunExecute;
     redisconnector.getJSON = originalGetJSON;
     redisconnector.storeJSON = originalStoreJSON;
   });
@@ -249,9 +268,11 @@ describe("getActivePersons controller", () => {
     });
 
     it("releases the connection when a query fails", async () => {
-      sqlconnector.runQuery = async () => {
+      const fail = async () => {
         throw new Error("query failed");
       };
+      sqlconnector.runQuery = fail;
+      sqlconnector.runExecute = fail;
 
       try {
         await personsController.getActivePersons();
