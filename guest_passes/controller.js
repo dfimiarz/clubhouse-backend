@@ -22,18 +22,9 @@ dayjs.extend(timezone);
  * @returns
  */
 const addGuestPass = async (passinfo) => {
-  const insert_guest_pass_q = `INSERT INTO \`guest_pass\` 
-  (\`id\`,
-  \`created\`,
-  \`updated\`,
-  \`guest_id\`,
-  \`member_id\`,
-  \`valid\`,
-  \`type\`,
-  \`valid_from\`,
-  \`valid_to\`) 
-  VALUES 
-  (null, default, default,?,?,default,?,?,?)`;
+  const insert_guest_pass_q = `INSERT INTO \`guest_pass\`
+  (\`guest_id\`, \`member_id\`, \`type\`, \`valid_from\`, \`valid_to\`)
+  VALUES (?, ?, ?, ?, ?)`;
 
   const club_info_q = `
     select 
@@ -60,16 +51,12 @@ const addGuestPass = async (passinfo) => {
 
   const guest_pass_typq_q = `SELECT label, valid_days, season_limit FROM guest_pass_type WHERE id = ? and club_id  = ? FOR SHARE`;
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION", []);
-
-    try {
-      const club_info_res = await sqlconnector.runQuery(
+    const result = await sqlconnector.withTransaction(async (connection) => {
+      const club_info_res = await sqlconnector.runExecute(
         connection,
         club_info_q,
-        club_id
+        [club_id]
       );
 
       if (!(Array.isArray(club_info_res) && club_info_res.length === 1)) {
@@ -83,7 +70,7 @@ const addGuestPass = async (passinfo) => {
       const season_end = club_info_res[0].season_end;
       const time_zone = club_info_res[0].time_zone;
 
-      const host_data_res = await sqlconnector.runQuery(
+      const host_data_res = await sqlconnector.runExecute(
         connection,
         role_check_q,
         [passinfo.host, club_id]
@@ -100,7 +87,7 @@ const addGuestPass = async (passinfo) => {
         throw new RESTError(400, "Invalid guest host");
       }
 
-      const guest_data_res = await sqlconnector.runQuery(
+      const guest_data_res = await sqlconnector.runExecute(
         connection,
         role_check_q,
         [passinfo.guest, club_id]
@@ -115,7 +102,7 @@ const addGuestPass = async (passinfo) => {
         throw new RESTError(400, "Invalid guest");
       }
 
-      const pass_type_res = await sqlconnector.runQuery(
+      const pass_type_res = await sqlconnector.runExecute(
         connection,
         guest_pass_typq_q,
         [passinfo.pass_type, club_id]
@@ -139,19 +126,16 @@ const addGuestPass = async (passinfo) => {
         season_end
       );
 
-      //console.log(passes);
-
       //Find if there is an active pass already for the guest
       const active_pass = passes.find((pass) => pass.active === 1);
 
-      //If there is an active pass, return pass info
+      //If there is an active pass, return pass info (no cache invalidation)
       if (active_pass) {
-        await sqlconnector.runQuery(connection, "COMMIT", []);
-
         return {
           id: active_pass.id,
           label: active_pass.label,
           type: active_pass.type,
+          created: false,
         };
       }
 
@@ -190,7 +174,7 @@ const addGuestPass = async (passinfo) => {
         ? dayjs(season_end).tz(time_zone).subtract(1, 'second').format("YYYY-MM-DD HH:mm:ss")
         : valid_to.format("YYYY-MM-DD HH:mm:ss");
 
-      const guest_pass_res = await sqlconnector.runQuery(
+      const guest_pass_res = await sqlconnector.runExecute(
         connection,
         insert_guest_pass_q,
         [
@@ -202,36 +186,40 @@ const addGuestPass = async (passinfo) => {
         ]
       );
 
-      await sqlconnector.runQuery(connection, "COMMIT", []);
+      return {
+        id: guest_pass_res.insertId,
+        label: pass_type_label,
+        type: passinfo.pass_type,
+        created: true,
+      };
+    });
 
-      //Invalidate the active-persons cache so the new pass is reflected immediately.
-      //Best effort: the cache TTL bounds staleness if the delete fails.
+    //Invalidate the active-persons cache only when a new pass was created.
+    //Best effort: the cache TTL bounds staleness if the delete fails.
+    if (result.created) {
       try {
         await redisconnector.deleteKey(`active_persons_${club_id}`);
       } catch (error) {
         log(appLogLevels.WARNING, `Error invalidating active persons cache: ${error}`);
       }
-
-      return {
-        id: guest_pass_res.insertId,
-        label: pass_type_label,
-        type: passinfo.pass_type,
-      };
-    } catch (err) {
-      console.log(err);
-      await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      throw err instanceof RESTError
-        ? err
-        : new RESTError(500, "Unable to activate", err);
     }
-  } finally {
-    connection.release();
+
+    return {
+      id: result.id,
+      label: result.label,
+      type: result.type,
+    };
+  } catch (err) {
+    console.log(err);
+    throw err instanceof RESTError
+      ? err
+      : new RESTError(500, "Unable to activate", err);
   }
 };
 
 /**
  *
- * @param {import("mysql").PoolConnection} connection MySQL connection
+ * @param {import("mysql2").PoolConnection} connection MySQL connection
  * @param {Number} guest_id Guest ID
  * @param {String} season_start Season start date
  * @param {String} season_end Season end date
@@ -258,7 +246,7 @@ async function _getGuestPasses(connection, guest_id, season_start, season_end) {
   WHERE c.id = ? and guest_id = ? and valid_from < ? and valid_to > ? and valid = 1
   FOR SHARE`;
 
-  const guest_passes_res = await sqlconnector.runQuery(
+  const guest_passes_res = await sqlconnector.runExecute(
     connection,
     guest_passes_q,
     [club_id, guest_id, season_end, season_start]

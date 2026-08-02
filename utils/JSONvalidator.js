@@ -1,7 +1,6 @@
 const Ajv = require("ajv");
 const ajv = new Ajv({allErrors: true});
 const ajv_formats = require("ajv-formats");
-const { format } = require("mysql");
 
 ajv_formats(ajv);
 

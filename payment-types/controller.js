@@ -1,6 +1,8 @@
 const sqlconnector = require("../db/SqlConnector");
 const club_id = process.env.CLUB_ID;
 const RESTError = require("../utils/RESTError");
+const { parseJsonColumn } = require("../utils/dbutils");
+const { log, appLogLevels } = require("../utils/logger/logger");
 
 /**
  * @typedef {import("./types").PaymentType} PaymentType;
@@ -25,17 +27,15 @@ const getPaymentTypes = async () => {
   JOIN payment_processors pp on pp.id = pt.processor 
   WHERE club = ?`;
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    const payment_types_res = await sqlconnector.runQuery(
-      connection,
-      payment_types_q,
-      [club_id]
+    const payment_types_res = await sqlconnector.withConnection(
+      async (connection) => {
+        return sqlconnector.runExecute(connection, payment_types_q, [club_id]);
+      }
     );
 
     if (!Array.isArray(payment_types_res) || payment_types_res.length < 1) {
-      throw new RESTError(400, "Failed loading guest pass types");
+      throw new RESTError(400, "Failed loading payment types");
     }
 
     return payment_types_res.map((payment_type) => {
@@ -45,12 +45,17 @@ const getPaymentTypes = async () => {
         fee: payment_type.fee,
         fee_type: payment_type.fee_type,
         processor: payment_type.processor,
-        processor_config: JSON.parse(payment_type.processor_config),
+        processor_config: parseJsonColumn(payment_type.processor_config),
         validator: payment_type.validator,
       };
     });
-  } finally {
-    connection.release();
+  } catch (error) {
+    if (error instanceof RESTError) {
+      throw error;
+    }
+
+    log(appLogLevels.ERROR, `Error retrieving payment types: ${error.message}`);
+    throw new RESTError(500, "Failed fetching payment types");
   }
 };
 

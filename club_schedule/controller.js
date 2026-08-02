@@ -166,8 +166,6 @@ async function getClubSchedules() {
         return cachedSchedule;
     }
 
-    const connection = await sqlconnector.getConnection();
-
     const courts_for_club_query = `SELECT id FROM court WHERE club = ? FOR SHARE`;
 
     const club_schedule_query = `SELECT cs.id,
@@ -202,14 +200,25 @@ async function getClubSchedules() {
                                 FOR SHARE`;
 
     try {
-
-        await sqlconnector.runQuery(connection, "START TRANSACTION", []);
-
-        const courts_results = await sqlconnector.runQuery(connection, courts_for_club_query, [CLUB_ID]);
-        const schedules_result = await sqlconnector.runQuery(connection, club_schedule_query, [CLUB_ID]);
-        const item_result = await sqlconnector.runQuery(connection, schedule_items_query, [CLUB_ID]);
-
-        await sqlconnector.runQuery(connection, "COMMIT", [])
+        const { courts_results, schedules_result, item_result } =
+            await sqlconnector.withTransaction(async (connection) => {
+                const courts_results = await sqlconnector.runExecute(
+                    connection,
+                    courts_for_club_query,
+                    [CLUB_ID]
+                );
+                const schedules_result = await sqlconnector.runExecute(
+                    connection,
+                    club_schedule_query,
+                    [CLUB_ID]
+                );
+                const item_result = await sqlconnector.runExecute(
+                    connection,
+                    schedule_items_query,
+                    [CLUB_ID]
+                );
+                return { courts_results, schedules_result, item_result };
+            });
 
         //Extract court ids into a set;
         const courts = courts_results.map((court_result) => court_result.id);
@@ -274,9 +283,6 @@ async function getClubSchedules() {
     catch (error) {
         log(appLogLevels.ERROR, `Error retrieving club schedules: ${error}`);
         throw new RESTError(500, "Failed fetching club schedules");
-    }
-    finally {
-        connection.release()
     }
 
 }

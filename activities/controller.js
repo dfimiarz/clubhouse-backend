@@ -42,11 +42,10 @@ async function getActivitiesForDates(from, to) {
                 AND c.club = ?
         ORDER BY date , start`;
 
-    const connection = await sqlconnector.getConnection();
-
     try {
-
-        const result = await sqlconnector.runQuery(connection, activities_q, [from, to, CLUB_ID]);
+        const result = await sqlconnector.withConnection(async (connection) => {
+            return sqlconnector.runExecute(connection, activities_q, [from, to, CLUB_ID]);
+        });
 
         if (!Array.isArray(result)) {
             throw new Error("Unable to retrieve activity data");
@@ -77,9 +76,6 @@ async function getActivitiesForDates(from, to) {
     } catch (err) {
         log(appLogLevels.ERROR, `Error getting activities: ${err.message}`);
         throw new RESTError(500, "Request failed");
-
-    } finally {
-        connection.release();
     }
 
 }

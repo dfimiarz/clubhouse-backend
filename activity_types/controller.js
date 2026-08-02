@@ -41,11 +41,10 @@ async function getActivityTypes() {
                 AND c.club = ?
         ORDER BY date , start`;
 
-    const connection = await sqlconnector.getConnection();
-
     try {
-
-        const result = await sqlconnector.runQuery(connection, activity_types_q, [CLUB_ID]);
+        const result = await sqlconnector.withConnection(async (connection) => {
+            return sqlconnector.runExecute(connection, activity_types_q, [CLUB_ID]);
+        });
 
         if (!Array.isArray(result)) {
             throw new Error("Unable to retrieve activity types data");
@@ -75,9 +74,6 @@ async function getActivityTypes() {
     } catch (err) {
         log(appLogLevels.ERROR, `Error getting activity types: ${err.message}`);
         throw new RESTError(500, "Request failed");
-
-    } finally {
-        connection.release();
     }
 
 }

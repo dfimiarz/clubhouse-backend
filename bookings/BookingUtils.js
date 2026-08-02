@@ -68,14 +68,15 @@ const player_q = `SELECT
 
                 
 
+// Named placeholders (mysql2 namedPlaceholders) — same value reused under one name.
 const booking_time_q = `SELECT 
-                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(?,' ',?),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_start,
-                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(?,' ',?),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_end,
-                            UNIX_TIMESTAMP(CONVERT_TZ(?,time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_day_start,
+                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:start),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_start,
+                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:end),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_end,
+                            UNIX_TIMESTAMP(CONVERT_TZ(:date,time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_day_start,
                             UNIX_TIMESTAMP(NOW()) AS utc_req_time,
                             CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, time_zone) AS DATE) + 0 AS loc_req_date,
                             CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, time_zone) AS TIME) AS loc_req_time,
-                            CAST(? AS DATE) + 0 AS numeric_date,
+                            CAST(:date AS DATE) + 0 AS numeric_date,
                             time_zone,
                             s.id AS schedule_id
                         FROM
@@ -87,14 +88,14 @@ const booking_time_q = `SELECT
                                 club_schedule cs
                             JOIN court_schedule_item csi ON csi.schedule = cs.id
                             WHERE
-                                cs.club = ?
-                                    AND ? BETWEEN cs.from AND cs.to
-                                    AND csi.dayofweek = DAYOFWEEK(?)
-                                    AND ? >= csi.open
-                                    AND close >= ?
-                                    AND csi.court = ?) AS s ON s.club = club.id
+                                cs.club = :club_id
+                                    AND :date BETWEEN cs.from AND cs.to
+                                    AND csi.dayofweek = DAYOFWEEK(:date)
+                                    AND :start >= csi.open
+                                    AND close >= :end
+                                    AND csi.court = :court_id) AS s ON s.club = club.id
                             WHERE
-                                club.id = ?`;
+                                club.id = :club_id`;
 
 //end,start,court,date
 const overlap_check_q = `
@@ -201,17 +202,22 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
  */
 async function insertBooking(connection, booking) {
 
-    const insertActivityQ = `INSERT INTO \`activity\` (\`id\`, \`created\`, \`updated\`, \`type\`, \`court\`, \`date\` ,\`start\`, \`end\`, \`bumpable\`,\`active\`,\`notes\`)
-    VALUES (NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ? ,1, ?)`;
+    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start\`, \`end\`, \`bumpable\`, \`active\`, \`notes\`)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)`;
 
-    const insertPlayersQ = "INSERT INTO participant VALUES ?";
+    const insertPlayersQ =
+        "INSERT INTO participant (`activity`, `person`, `status`, `type`) VALUES ?";
 
     const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.start, booking.end, booking.bumpable, booking.notes])
 
     const activity_id = activity_result.insertId;
 
-    //`id`, `activity`, `person`, `status`, `type`
-    const playersArrays = booking.players.map((player) => [null, activity_id, player.person_id, 1, player.player_type_id])
+    const playersArrays = booking.players.map((player) => [
+        activity_id,
+        player.person_id,
+        1,
+        player.player_type_id,
+    ]);
 
     await sqlconnector.runQuery(connection, insertPlayersQ, [playersArrays])
 
@@ -246,7 +252,13 @@ async function getNewBooking(connection, initValues) {
         etag: null
     }
 
-    let bookingtime_result = await sqlconnector.runQuery(connection, booking_time_q, [booking.date, booking.start, booking.date, booking.end, booking.date, booking.date, CLUB_ID , booking.date, booking.date, booking.start, booking.end,  booking.court_id, CLUB_ID])
+    let bookingtime_result = await sqlconnector.runQuery(connection, booking_time_q, {
+        date: booking.date,
+        start: booking.start,
+        end: booking.end,
+        club_id: CLUB_ID,
+        court_id: booking.court_id,
+    });
 
     if (bookingtime_result.length !== 1) {
         return null

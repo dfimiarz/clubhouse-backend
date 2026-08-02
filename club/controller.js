@@ -75,77 +75,78 @@ async function getClubInfo() {
                         JOIN role_type ON role.type = role_type.id
                         ORDER BY role.id`;
 
-    const connection = await sqlconnector.getConnection();
-
     try {
+        const result = await sqlconnector.withConnection(async (connection) => {
+            const club_results = await sqlconnector.runExecute(connection, club_query, [CLUB_ID]);
 
-        const club_results = await sqlconnector.runQuery(connection, club_query, [CLUB_ID]);
-
-        if (!Array.isArray(club_results) && club_results.length != 1) {
-            throw new Error("Unable to load club data");
-        }
-
-        const club = club_results[0];
-
-        const result = {
-            id: club["id"],
-            name: club["name"],
-            time_zone: club["time_zone"],
-            guest_req_limit: club["guest_req_limit"],
-            default_cal_start: club["default_cal_start"],
-            default_cal_start_min: club["default_cal_start_min"],
-            default_cal_end: club["default_cal_end"],
-            default_cal_end_min: club["default_cal_end_min"],
-        }
-
-        const images_results = await sqlconnector.runQuery(connection, image_query, [CLUB_ID]);
-
-        if( Array.isArray(images_results) && images_results.length > 0) {
-
-            result.images = images_results.map((image) => {
-                return {
-                    name: image["name"],
-                    src: image["src"]
-                }
+            if (!Array.isArray(club_results) && club_results.length != 1) {
+                throw new Error("Unable to load club data");
             }
-            );
-        }
-        else {
-            result.images = [];
-        }
 
-        const about_results = await sqlconnector.runQuery(connection, about_query, [CLUB_ID]);
+            const club = club_results[0];
 
-        if (Array.isArray(about_results) && about_results.length > 0) {
-            result.about_sections = about_results.map((section) => {
+            const result = {
+                id: club["id"],
+                name: club["name"],
+                time_zone: club["time_zone"],
+                guest_req_limit: club["guest_req_limit"],
+                default_cal_start: club["default_cal_start"],
+                default_cal_start_min: club["default_cal_start_min"],
+                default_cal_end: club["default_cal_end"],
+                default_cal_end_min: club["default_cal_end_min"],
+            }
+
+            const images_results = await sqlconnector.runExecute(connection, image_query, [CLUB_ID]);
+
+            if( Array.isArray(images_results) && images_results.length > 0) {
+
+                result.images = images_results.map((image) => {
+                    return {
+                        name: image["name"],
+                        src: image["src"]
+                    }
+                }
+                );
+            }
+            else {
+                result.images = [];
+            }
+
+            const about_results = await sqlconnector.runExecute(connection, about_query, [CLUB_ID]);
+
+            if (Array.isArray(about_results) && about_results.length > 0) {
+                result.about_sections = about_results.map((section) => {
+                    return {
+                        title: section["title"],
+                        image_url: section["image_url"],
+                        text: section["text_content"]
+                    }
+                });
+            }
+            else {
+                result.about_sections = [];
+            }
+
+            const roles_results = await sqlconnector.runExecute(connection, roles_query, []);
+
+            if (!Array.isArray(roles_results) || roles_results.length === 0) {
+                throw new Error("Unable to load roles");
+            }
+
+            result.roles = roles_results.map((role) => {
                 return {
-                    title: section["title"],
-                    image_url: section["image_url"],
-                    text: section["text_content"]
+                    id: role["id"],
+                    label: role["label"],
+                    type_id: role["type_id"],
+                    type_label: role["type_label"],
+                    event_host: role["event_host"],
+                    guest_host: role["guest_host"],
+                    requires_pass: role["requires_pass"],
+                    public_label: role["public_label"]
                 }
             });
-        }
-        else {
-            result.about_sections = [];
-        }
 
-        const roles_results = await sqlconnector.runQuery(connection, roles_query, []);
-
-        if (!Array.isArray(roles_results) || roles_results.length === 0) {
-            throw new Error("Unable to load roles");
-        }
-
-        result.roles = roles_results.map((role) => {
-            return {
-                id: role["id"],
-                label: role["label"],
-                type_id: role["type_id"],
-                type_label: role["type_label"],
-                event_host: role["event_host"],
-                guest_host: role["guest_host"],
-                requires_pass: role["requires_pass"],
-                public_label: role["public_label"]
-            }
+            return result;
         });
 
         //Store club info in redis; a cache failure should not fail the request
@@ -161,9 +162,6 @@ async function getClubInfo() {
     catch (error) {
         log(appLogLevels.ERROR, `Error getting club info: ${error.message}`);
         throw new RESTError(500, "Failed loading club info");
-    }
-    finally {
-        connection.release()
     }
 }
 

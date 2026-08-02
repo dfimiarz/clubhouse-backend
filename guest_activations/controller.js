@@ -3,12 +3,6 @@ const club_id = process.env.CLUB_ID;
 const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("./../utils/RESTError");
 
-const CURRENT_TIMESTAMP = {
-  toSqlString: function () {
-    return "CURRENT_TIMESTAMP()";
-  },
-};
-
 /**
  *
  * @param {Number} member Id of member
@@ -37,17 +31,13 @@ async function addGuestActivationsInBulk(member, guests) {
   const club_date_q =
     "SELECT CAST(convert_tz(now(),@@GLOBAL.time_zone,c.time_zone)  as DATE) as local_date from club c where c.id = ? LOCK IN SHARE MODE";
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION", []);
-
-    try {
-      //Get club date
-      const local_club_date_res = await sqlconnector.runQuery(
+    return await sqlconnector.withTransaction(async (connection) => {
+      //Get club date (scalar bind — prepared statement)
+      const local_club_date_res = await sqlconnector.runExecute(
         connection,
         club_date_q,
-        club_id
+        [club_id]
       );
 
       if (
@@ -60,7 +50,7 @@ async function addGuestActivationsInBulk(member, guests) {
       const local_club_date = local_club_date_res[0].local_date;
 
       //Check if a member is active and belongs to club defined in .env
-      const m_result = await sqlconnector.runQuery(connection, member_check_q, [
+      const m_result = await sqlconnector.runExecute(connection, member_check_q, [
         member,
         club_id,
       ]);
@@ -69,7 +59,7 @@ async function addGuestActivationsInBulk(member, guests) {
         throw new RESTError(400, "Member error");
       }
 
-      //Check if guests belong to the club
+      //Check if guests belong to the club (IN ? needs query expansion)
       const g_result = await sqlconnector.runQuery(connection, guests_check_q, [
         [guests],
         club_id,
@@ -82,7 +72,7 @@ async function addGuestActivationsInBulk(member, guests) {
         throw new RESTError(400, "Guest list error. Reload and try again");
       }
 
-      //Check if guests are activated
+      //Check if guests are activated (IN ? needs query expansion)
       const activations_result = await sqlconnector.runQuery(
         connection,
         guests_activation_check_q,
@@ -97,37 +87,21 @@ async function addGuestActivationsInBulk(member, guests) {
         throw new RESTError(400, "A guest is already active");
       }
 
-      let guest_activations = guests.map((guest_id) => {
-        return [
-          null,
-          CURRENT_TIMESTAMP,
-          CURRENT_TIMESTAMP,
-          member,
-          guest_id,
-          local_club_date,
-          false,
-          1,
-        ];
+      const guest_activations = guests.map((guest_id) => {
+        return [member, guest_id, local_club_date, false, 1];
       });
 
-      const insert_q = "insert into guest_activation values ?";
+      const insert_q =
+        "INSERT INTO guest_activation (member, guest, active_date, isfamily, status) VALUES ?";
 
       await sqlconnector.runQuery(connection, insert_q, [guest_activations]);
 
-      await sqlconnector.runQuery(connection, "COMMIT", []);
-
       return true;
-    } catch (error) {
-      await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      throw error;
-    }
+    });
   } catch (error) {
-    //console.log(error);
     throw error instanceof RESTError
       ? error
       : new SQLErrorFactory.getError(OPCODE, error);
-  } finally {
-    connection.release();
   }
 }
 
@@ -173,13 +147,11 @@ async function getCurrentActivations() {
         order by person;
     `;
 
-  const connection = await sqlconnector.getConnection();
+  return sqlconnector.withConnection(async (connection) => {
+    //Keep all the current players in a set for efficient lookup
+    const players = new Set();
 
-  //Keep all the current players in a set for efficient lookup
-  const players = new Set();
-
-  try {
-    const current_players_result = await sqlconnector.runQuery(
+    const current_players_result = await sqlconnector.runExecute(
       connection,
       players_Query,
       [club_id]
@@ -194,7 +166,7 @@ async function getCurrentActivations() {
       players.add(elem.person);
     });
 
-    const current_activations_result = await sqlconnector.runQuery(
+    const current_activations_result = await sqlconnector.runExecute(
       connection,
       query,
       [club_id]
@@ -215,9 +187,7 @@ async function getCurrentActivations() {
       has_played: players.has(row.guest_id) ? true : false,
       time_activated: row.time_activated,
     }));
-  } finally {
-    connection.release();
-  }
+  });
 }
 
 /**
@@ -236,26 +206,13 @@ async function deactivateGuests(activation_records) {
     throw new Error("Activation records must be an array");
   }
 
-  const connection = await sqlconnector.getConnection();
-
-  try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION", []);
-
-    try {
-      for (const record of activation_records) {
-        await __deactivateGuest(connection, record.id, record.etag);
-      }
-
-      await sqlconnector.runQuery(connection, "COMMIT", []);
-
-      return true;
-    } catch (err) {
-      await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      throw err;
+  return sqlconnector.withTransaction(async (connection) => {
+    for (const record of activation_records) {
+      await __deactivateGuest(connection, record.id, record.etag);
     }
-  } finally {
-    connection.release();
-  }
+
+    return true;
+  });
 }
 
 /**
@@ -269,24 +226,10 @@ async function deactivateGuest(id, etag) {
     throw new Error("ID or ETAG missing");
   }
 
-  const connection = await sqlconnector.getConnection();
-
-  try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION", []);
-
-    try {
-      await __deactivateGuest(connection, id, etag);
-
-      await sqlconnector.runQuery(connection, "COMMIT", []);
-
-      return true;
-    } catch (err) {
-      await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      throw err;
-    }
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withTransaction(async (connection) => {
+    await __deactivateGuest(connection, id, etag);
+    return true;
+  });
 }
 
 /**
@@ -319,7 +262,7 @@ async function __deactivateGuest(connection, id, etag) {
         UPDATE guest_activation SET status = 0 WHERE id = ?
     `;
 
-  const ga_result = await sqlconnector.runQuery(connection, gaQuery, [
+  const ga_result = await sqlconnector.runExecute(connection, gaQuery, [
     id,
     etag,
   ]);
@@ -344,13 +287,13 @@ async function __deactivateGuest(connection, id, etag) {
   }
 
   //Do not allow guests that have played to be removed
-  const guestPlayed_result = await sqlconnector.runQuery(
+  const guestPlayed_result = await sqlconnector.runExecute(
     connection,
     guestPlayedQuery,
     [guest_id, guest_active_date]
   );
 
-  if (!(Array.isArray(ga_result) && ga_result.length === 1)) {
+  if (!(Array.isArray(guestPlayed_result) && guestPlayed_result.length === 1)) {
     throw new Error("Unable to verify guest play time");
   }
 
@@ -358,7 +301,7 @@ async function __deactivateGuest(connection, id, etag) {
     throw new Error("Guest has already played.");
   }
 
-  await sqlconnector.runQuery(connection, updateGaQuery, [id]);
+  await sqlconnector.runExecute(connection, updateGaQuery, [id]);
 }
 
 module.exports = {

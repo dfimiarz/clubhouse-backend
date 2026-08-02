@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 // test-setup.js
-import { createPool } from "mysql";
+import { createPool } from "mysql2/promise";
 
 const pool_config = {
   connectionLimit: 10,
@@ -10,41 +10,34 @@ const pool_config = {
   password: process.env.SQL_PASSWORD,
   port: process.env.SQL_PORT || 3306,
   connectTimeout: 10000,
-  acquireTimeout: 10000,
   waitForConnections: true,
   queueLimit: 0,
   timezone: "Z",
   dateStrings: true,
+  namedPlaceholders: true,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10_000,
 };
 
 const pool = createPool(pool_config);
 
 /**
- *
- * @returns { Promise<mysql.PoolConnection> }
+ * @returns {Promise<import("mysql2/promise").PoolConnection>}
  */
 function getConnection() {
-  return new Promise((resolve, reject) => {
-    pool.getConnection((err, connection) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(connection);
-      }
-    });
-  });
+  return pool.getConnection();
 }
 
 // Function to set up the database
 async function setupDatabase() {
-  // Write your database setup logic here
   const createDatabaseQuery = `CREATE DATABASE IF NOT EXISTS clubhouse_test DEFAULT CHARACTER SET utf8mb4`;
 
   const connection = await getConnection();
-  connection.query(createDatabaseQuery, (err, _result) => {
-    if (err) throw err;
-  });
-  connection.release();
+  try {
+    await connection.query(createDatabaseQuery);
+  } finally {
+    connection.release();
+  }
 }
 
 // Function to tear down the database
@@ -52,10 +45,11 @@ async function teardownDatabase() {
   const dropDatabaseQuery = "DROP DATABASE IF EXISTS clubhouse_test";
 
   const connection = await getConnection();
-  connection.query(dropDatabaseQuery, (err, _result) => {
-    if (err) throw err;
-  });
-  connection.release();
+  try {
+    await connection.query(dropDatabaseQuery);
+  } finally {
+    connection.release();
+  }
 }
 
 // Export the setup and teardown functions

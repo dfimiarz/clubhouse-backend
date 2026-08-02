@@ -35,11 +35,10 @@ const playerStatsProcessor = async (name, from, to) => {
         and pr.club = ?
     group by a.date`;
 
-    const connection = await sqlconnector.getConnection();
-
     try {
-
-        const result = await sqlconnector.runQuery(connection, time_played_q, [from, to, CLUB_ID]);
+        const result = await sqlconnector.withConnection(async (connection) => {
+            return sqlconnector.runExecute(connection, time_played_q, [from, to, CLUB_ID]);
+        });
 
         if (!Array.isArray(result)) {
             throw new Error("Unable to retrieve report data");
@@ -59,9 +58,6 @@ const playerStatsProcessor = async (name, from, to) => {
     } catch (err) {
         log(appLogLevels.ERROR, `Error generating report '${name}': ${err.message}`);
         throw new RESTError(500, "Request failed");
-
-    } finally {
-        connection.release();
     }
 
 }
@@ -132,11 +128,10 @@ const memberActivitiesProcessor = async function (name, from, to) {
         AND m.valid_from <= a.date AND m.valid_until > a.date
     ORDER BY date , start`;
 
-    const connection = await sqlconnector.getConnection();
-
     try {
-
-        const result = await sqlconnector.runQuery(connection, activities_q, [from, to, CLUB_ID]);
+        const result = await sqlconnector.withConnection(async (connection) => {
+            return sqlconnector.runExecute(connection, activities_q, [from, to, CLUB_ID]);
+        });
 
         if (!Array.isArray(result)) {
             throw new Error("Unable to retrieve report data");
@@ -160,9 +155,6 @@ const memberActivitiesProcessor = async function (name, from, to) {
     } catch (err) {
         log(appLogLevels.ERROR, `Error generating report '${name}': ${err.message}`)
         throw new RESTError(500, "Request failed");
-
-    } finally {
-        connection.release();
     }
 
 }
@@ -202,11 +194,10 @@ const guestPassesProcessor = async function (name, from, to) {
             AND host.club = ? 
         ORDER BY gp.created DESC`;
 
-        const connection = await sqlconnector.getConnection();
-
         try {
-    
-            const result = await sqlconnector.runQuery(connection, passes_q, [to_dt, from_dt, CLUB_ID]);
+            const result = await sqlconnector.withConnection(async (connection) => {
+                return sqlconnector.runExecute(connection, passes_q, [to_dt, from_dt, CLUB_ID]);
+            });
     
             if (!Array.isArray(result)) {
                 throw new Error("Unable to retrieve report data");
@@ -229,9 +220,6 @@ const guestPassesProcessor = async function (name, from, to) {
         } catch (err) {
             log(appLogLevels.ERROR, `Error generating report '${name}': ${err.message}`);
             throw new RESTError(500, "Request failed");
-    
-        } finally {
-            connection.release();
         }
 }
 

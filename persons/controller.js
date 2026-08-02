@@ -13,14 +13,10 @@ const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../util
  * @returns {Promise<Array>} List of club members
  */
 async function getMembers() {
-  const connection = await sqlconnector.getConnection();
   const query = `SELECT id,CONCAT(firstname,' ',lastname) as name,firstname,lastname,type_id,role,email,UNIX_TIMESTAMP(convert_tz(valid_until,time_zone,@@GLOBAL.time_zone )) as active_until FROM members_view`;
-  try {
-    const members = await sqlconnector.runQuery(connection, query);
-    return members;
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runExecute(connection, query);
+  });
 }
 
 const SEARCH_RESULT_LIMIT = 20;
@@ -43,8 +39,6 @@ function foldAccents(value) {
  * @returns {Promise<Array>} Full active-persons list
  */
 async function fetchActivePersonsFromDB() {
-  const connection = await sqlconnector.getConnection();
-
   const member_query = `SELECT m.* FROM membership_view m
                   JOIN club c on c.id = m.club
                   WHERE DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from
@@ -60,11 +54,11 @@ async function fetchActivePersonsFromDB() {
     gp.valid = 1 AND
     convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone) BETWEEN gp.valid_from and gp.valid_to`;
 
-  try {
-    const active_passes = await sqlconnector.runQuery(
+  return sqlconnector.withConnection(async (connection) => {
+    const active_passes = await sqlconnector.runExecute(
       connection,
       passes_query,
-      club_id
+      [club_id]
     );
 
     //Create a hash map with key being guest_id and values being pass_id, type, and label
@@ -73,7 +67,7 @@ async function fetchActivePersonsFromDB() {
       return acc;
     }, {});
 
-    const persons = await sqlconnector.runQuery(connection, member_query, [
+    const persons = await sqlconnector.runExecute(connection, member_query, [
       club_id,
     ]);
 
@@ -88,9 +82,7 @@ async function fetchActivePersonsFromDB() {
     });
 
     return persons;
-  } finally {
-    connection.release();
-  }
+  });
 }
 
 /**
@@ -164,35 +156,27 @@ async function getActivePersons({ ids, search, host } = {}) {
 }
 
 async function getClubManagers() {
-  const connection = await sqlconnector.getConnection();
   const query = `select p.id,p.firstname,p.lastname from person p join member m on m.person_id = p.id join club c on p.club = c.id 
     where 
     role > 2000 and 
     curtime() >= getDbTime(m.valid_from,c.time_zone) and
     curtime() < getDbTime(m.valid_until,c.time_zone) and club = ? order by role,lastname
     `;
-  try {
-    const managers = await sqlconnector.runQuery(connection, query, club_id);
-    return managers;
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runExecute(connection, query, [club_id]);
+  });
 }
 
 async function getEventHosts() {
-  const connection = await sqlconnector.getConnection();
   const query = `SELECT m.id, m.firstname, m.lastname 
                 FROM membership_view m JOIN club c ON c.id = m.club 
                 WHERE event_host = 1 
                 AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from 
                 AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < m.valid_until
                 AND club = ?`;
-  try {
-    const hosts = await sqlconnector.runQuery(connection, query, club_id);
-    return hosts;
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runExecute(connection, query, [club_id]);
+  });
 }
 
 /**
@@ -200,14 +184,10 @@ async function getEventHosts() {
  * @returns {Promise<Array>} List of club guests
  */
 async function getGuests() {
-  const connection = await sqlconnector.getConnection();
   const query = `SELECT id,CONCAT(firstname,' ',lastname) as name,firstname,lastname,type_id,role,email,UNIX_TIMESTAMP(convert_tz(valid_until,time_zone,@@GLOBAL.time_zone )) as active_until FROM members_view`;
-  try {
-    const courts = await sqlconnector.runQuery(connection, query);
-    return courts;
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runExecute(connection, query);
+  });
 }
 
 async function addGuest(request) {
@@ -245,16 +225,8 @@ async function addGuest(request) {
   const membership_query =
     "INSERT INTO `membership` (`person_id`,`valid_from`,`valid_until`,`role`) VALUES (?,CURDATE(),DATE_ADD(DATE_FORMAT(NOW(), '%Y-01-01'), INTERVAL 1 YEAR),?)";
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    try {
-      await sqlconnector.runQuery(
-        connection,
-        "START TRANSACTION READ WRITE",
-        []
-      );
-
+    await sqlconnector.withTransaction(async (connection) => {
       const duplicateGuest = await findDuplicateGuest(connection, {
         firstname: formattedFirstName,
         lastname: formattedLastName,
@@ -266,7 +238,7 @@ async function addGuest(request) {
         throw buildDuplicateGuestError(duplicateGuest);
       }
 
-      const person_insert_result = await sqlconnector.runQuery(
+      const person_insert_result = await sqlconnector.runExecute(
         connection,
         person_query,
         [club_id, formattedFirstName, formattedLastName, email, phone]
@@ -274,34 +246,27 @@ async function addGuest(request) {
 
       const person_id = person_insert_result.insertId;
 
-      await sqlconnector.runQuery(connection, membership_query, [
+      await sqlconnector.runExecute(connection, membership_query, [
         person_id,
         GUEST_ROLE_ID,
       ]);
+    }, { mode: "readWrite" });
 
-      await sqlconnector.runQuery(connection, "COMMIT", []);
-
-      //Invalidate the active-persons cache so the new guest shows up immediately.
-      //Best effort: the cache TTL bounds staleness if the delete fails.
-      try {
-        await redisconnector.deleteKey(ACTIVE_PERSONS_CACHE_KEY);
-      } catch (error) {
-        log(appLogLevels.WARNING, `Error invalidating active persons cache: ${error}`);
-      }
-
-      log(appLogLevels.INFO, `Guest added: ${JSON.stringify({ firstname: formattedFirstName, lastname: formattedLastName, email: email, phone: phone })}`);
+    //Invalidate the active-persons cache so the new guest shows up immediately.
+    //Best effort: the cache TTL bounds staleness if the delete fails.
+    try {
+      await redisconnector.deleteKey(ACTIVE_PERSONS_CACHE_KEY);
     } catch (error) {
-      await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      throw error;
+      log(appLogLevels.WARNING, `Error invalidating active persons cache: ${error}`);
     }
+
+    log(appLogLevels.INFO, `Guest added: ${JSON.stringify({ firstname: formattedFirstName, lastname: formattedLastName, email: email, phone: phone })}`);
   } catch (error) {
     if (error instanceof RESTError) {
       throw error;
     }
 
     throw new SQLErrorFactory.getError(OPCODE, error);
-  } finally {
-    connection.release();
   }
 }
 
@@ -362,42 +327,30 @@ function buildDuplicateGuestError(duplicateGuest) {
 }
 
 async function getPersons() {
-  const connection = await sqlconnector.getConnection();
   const query = `SELECT * from person`;
-  try {
-    const persons = await sqlconnector.runQuery(connection, query);
-    return persons;
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runExecute(connection, query);
+  });
 }
 
 /**
  * Return list of guests inelgible to play
  */
 async function getInactiveGuests() {
-  const connection = await sqlconnector.getConnection();
   const query = `SELECT * from inactive_guests`;
-  try {
-    const guests = await sqlconnector.runQuery(connection, query);
-    return guests;
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runExecute(connection, query);
+  });
 }
 
 /**
  * Return list of guests elgible to play
  */
 async function getActiveGuests() {
-  const connection = await sqlconnector.getConnection();
   const query = `SELECT * FROM active_guests`;
-  try {
-    const guests = await sqlconnector.runQuery(connection, query);
-    return guests;
-  } finally {
-    connection.release();
-  }
+  return sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runExecute(connection, query);
+  });
 }
 
 module.exports = {

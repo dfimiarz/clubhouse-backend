@@ -27,8 +27,6 @@ async function getBookingsForDate(date) {
 
   if (date === null) return [];
 
-  const connection = await sqlconnector.getConnection();
-
   // Membership date predicates belong on the LEFT JOIN so participants
   // without a membership covering `date` still appear (role fields null).
   const player_query = `SELECT
@@ -88,47 +86,38 @@ async function getBookingsForDate(date) {
                             FOR SHARE`;
 
   try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION READ ONLY", []);
-
-    let bookings_array;
-    let players_array = [];
-
-    try {
-      bookings_array = await sqlconnector.runQuery(
-        connection,
-        activity_query,
-        [date, CLUB_ID]
-      );
-
-      if (bookings_array.length > 0) {
-        const booking_ids = bookings_array.map((element) => element.id);
-
-        // Param order matches player_query placeholders: valid_from, valid_until, activity ids
-        players_array = await sqlconnector.runQuery(
+    // Fetch under a read-only transaction; assemble in memory after commit
+    // so assembly bugs cannot trigger a rollback.
+    const { bookings_array, players_array } = await sqlconnector.withTransaction(
+      async (connection) => {
+        const bookings_array = await sqlconnector.runQuery(
           connection,
-          player_query,
-          [date, date, booking_ids]
+          activity_query,
+          [date, CLUB_ID]
         );
-      }
 
-      await sqlconnector.runQuery(connection, "COMMIT", []);
-    } catch (error) {
-      try {
-        await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      } catch (rollbackError) {
-        log(
-          appLogLevels.ERROR,
-          `Rollback failed after read bookings error: ${rollbackError.message}`
-        );
-      }
-      throw error;
-    }
+        let players_array = [];
+
+        if (bookings_array.length > 0) {
+          const booking_ids = bookings_array.map((element) => element.id);
+
+          // Param order matches player_query placeholders: valid_from, valid_until, activity ids
+          players_array = await sqlconnector.runQuery(
+            connection,
+            player_query,
+            [date, date, booking_ids]
+          );
+        }
+
+        return { bookings_array, players_array };
+      },
+      { mode: "readOnly" }
+    );
 
     if (bookings_array.length === 0) {
       return [];
     }
 
-    // Assemble response after commit so in-memory work cannot trigger a rollback
     const bookings = new Map();
 
     bookings_array.forEach((element) => {
@@ -184,8 +173,6 @@ async function getBookingsForDate(date) {
     throw error instanceof RESTError
       ? error
       : new SQLErrorFactory.getError(OPCODE, error);
-  } finally {
-    connection.release();
   }
 }
 
@@ -224,17 +211,13 @@ async function addBooking(request) {
                           AND ? < m.valid_until 
                           LOCK IN SHARE MODE`;
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION READ WRITE", []);
-
-    try {
+    await sqlconnector.withTransaction(async (connection) => {
       //START Check players
       const persons_result = await sqlconnector.runQuery(
         connection,
         person_check_q,
-        [[uniqueIds], CLUB_ID,booking_date,booking_date]
+        [[uniqueIds], CLUB_ID, booking_date, booking_date]
       );
 
       if (
@@ -302,20 +285,12 @@ async function addBooking(request) {
 
       await insertBooking(connection, booking);
 
-      await sqlconnector.runQuery(connection, "COMMIT", []);
-
       log(appLogLevels.INFO, `Booking added: ${JSON.stringify(booking)}`);
-    } catch (error) {
-      await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      throw error;
-    }
+    }, { mode: "readWrite" });
   } catch (error) {
-
     throw error instanceof RESTError
       ? error
       : new SQLErrorFactory.getError(OPCODE, error);
-  } finally {
-    connection.release();
   }
 }
 
@@ -329,32 +304,17 @@ async function addBooking(request) {
 async function getBookingData(id) {
   const OPCODE = "GET_BOOKING";
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    await sqlconnector.runQuery(connection, "START TRANSACTION READ ONLY", []);
-
-    let booking;
-
-    try {
-      booking = await getBooking(
-        connection,
-        id,
-        transactionType.READ_TRANSACTION
-      );
-
-      await sqlconnector.runQuery(connection, "COMMIT", []);
-    } catch (error) {
-      try {
-        await sqlconnector.runQuery(connection, "ROLLBACK", []);
-      } catch (rollbackError) {
-        log(
-          appLogLevels.ERROR,
-          `Rollback failed after get booking error: ${rollbackError.message}`
+    const booking = await sqlconnector.withTransaction(
+      async (connection) => {
+        return getBooking(
+          connection,
+          id,
+          transactionType.READ_TRANSACTION
         );
-      }
-      throw error;
-    }
+      },
+      { mode: "readOnly" }
+    );
 
     if (!booking) {
       log(appLogLevels.ERROR, `Booking ${id} not found`);
@@ -367,8 +327,6 @@ async function getBookingData(id) {
     throw error instanceof RESTError
       ? error
       : new SQLErrorFactory.getError(OPCODE, error);
-  } finally {
-    connection.release();
   }
 }
 
@@ -396,29 +354,27 @@ function processPatchCommand(id, cmd) {
 async function getOverlappingBookings(court, date, start, end) {
   const overlap_q = `SELECT a.id,DATE_FORMAT(date,"%Y-%m-%d" ) as date,start,end,a.court,c.name as court_name FROM activity a JOIN court c ON a.court = c.id WHERE ? > start AND ? < end AND court = ? AND date = ? AND active = 1`;
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    const overlapping_result = await sqlconnector.runQuery(
-      connection,
-      overlap_q,
-      [end, start, court, date]
-    );
+    return await sqlconnector.withConnection(async (connection) => {
+      const overlapping_result = await sqlconnector.runQuery(
+        connection,
+        overlap_q,
+        [end, start, court, date]
+      );
 
-    return overlapping_result.map((booking) => {
-      return {
-        id: booking["id"],
-        date: booking["date"],
-        start: booking["start"],
-        end: booking["end"],
-        court: booking["court"],
-        court_name: booking["court_name"],
-      };
+      return overlapping_result.map((booking) => {
+        return {
+          id: booking["id"],
+          date: booking["date"],
+          start: booking["start"],
+          end: booking["end"],
+          court: booking["court"],
+          court_name: booking["court_name"],
+        };
+      });
     });
   } catch (err) {
     throw new RESTError(500, "Error querying database");
-  } finally {
-    connection.release();
   }
 }
 
@@ -448,46 +404,44 @@ async function getCourtAvailability(date, start, end) {
     ORDER BY c.id, a.start, a.end
   `;
 
-  const connection = await sqlconnector.getConnection();
-
   try {
-    const availability_result = await sqlconnector.runQuery(
-      connection,
-      availability_q,
-      [end, start, date, CLUB_ID]
-    );
+    return await sqlconnector.withConnection(async (connection) => {
+      const availability_result = await sqlconnector.runQuery(
+        connection,
+        availability_q,
+        [end, start, date, CLUB_ID]
+      );
 
-    const availability_map = new Map();
+      const availability_map = new Map();
 
-    availability_result.forEach((row) => {
-      if (!availability_map.has(row.court_id)) {
-        availability_map.set(row.court_id, {
-          court: row.court_id,
-          court_name: row.court_name,
-          has_overlap: false,
-          overlaps: [],
-        });
-      }
+      availability_result.forEach((row) => {
+        if (!availability_map.has(row.court_id)) {
+          availability_map.set(row.court_id, {
+            court: row.court_id,
+            court_name: row.court_name,
+            has_overlap: false,
+            overlaps: [],
+          });
+        }
 
-      if (row.booking_id !== null) {
-        const courtAvailability = availability_map.get(row.court_id);
-        courtAvailability.has_overlap = true;
-        courtAvailability.overlaps.push({
-          id: row.booking_id,
-          date: row.date,
-          start: row.start,
-          end: row.end,
-          court: row.court_id,
-          court_name: row.court_name,
-        });
-      }
+        if (row.booking_id !== null) {
+          const courtAvailability = availability_map.get(row.court_id);
+          courtAvailability.has_overlap = true;
+          courtAvailability.overlaps.push({
+            id: row.booking_id,
+            date: row.date,
+            start: row.start,
+            end: row.end,
+            court: row.court_id,
+            court_name: row.court_name,
+          });
+        }
+      });
+
+      return Array.from(availability_map.values());
     });
-
-    return Array.from(availability_map.values());
   } catch (err) {
     throw new RESTError(500, "Error querying database");
-  } finally {
-    connection.release();
   }
 }
 
