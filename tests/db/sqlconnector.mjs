@@ -1,6 +1,7 @@
 import { expect } from "chai";
 
 import sqlconnector from "../../db/SqlConnector.js";
+import logger from "../../utils/logger/logger.js";
 
 // A connection stand-in: records what reached the driver and returns the
 // [rows, fields] shape mysql2 gives back.
@@ -207,6 +208,9 @@ describe("SqlConnector.withTransaction", () => {
 
   it("still reports the original error when the rollback itself fails", async () => {
     useConnection(txConnection({ failOn: "rollback" }));
+    const originalLog = logger.log;
+    const logged = [];
+    logger.log = (level, message) => logged.push({ level, message });
 
     try {
       await sqlconnector.withTransaction(async () => {
@@ -214,11 +218,16 @@ describe("SqlConnector.withTransaction", () => {
       });
       expect.fail("expected withTransaction to rethrow");
     } catch (err) {
-      // The rollback failure is logged at WARNING; the body's error is what
-      // callers must see.
+      // The body's error is what callers must see; the rollback failure is
+      // reported separately rather than replacing it.
       expect(err.message).to.equal("body failed");
+    } finally {
+      logger.log = originalLog;
     }
 
     expect(connection.released).to.equal(1);
+    expect(logged).to.have.lengthOf(1);
+    expect(logged[0].level).to.equal(logger.appLogLevels.WARNING);
+    expect(logged[0].message).to.match(/rollback failed: rollback failed/i);
   });
 });

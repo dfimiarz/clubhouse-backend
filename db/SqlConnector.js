@@ -1,5 +1,10 @@
 const mysql = require("mysql2/promise");
-const { log, appLogLevels } = require("../utils/logger/logger");
+// Held as a module object, not destructured: `log` is called through it so a
+// test can replace logger.log and observe the call. Destructuring would copy
+// the function reference and make it uninterceptable. appLogLevels is a frozen
+// constants object, so pulling it out is safe.
+const logger = require("../utils/logger/logger");
+const { appLogLevels } = logger;
 
 // Configuration for the connection pool. See mysql2 docs for details.
 const config = {
@@ -179,7 +184,7 @@ async function withTransaction(fn, options = {}) {
       } catch (rollbackError) {
         // Still prefer the original error from the transaction body, but a
         // failed rollback is worth knowing about on its own.
-        log(
+        logger.log(
           appLogLevels.WARNING,
           `Transaction rollback failed: ${rollbackError.message}`
         );
