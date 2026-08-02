@@ -8,17 +8,6 @@ const RESTError = require("./../utils/RESTError");
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../utils/utils");
 
-/**
- *
- * @returns {Promise<Array>} List of club members
- */
-async function getMembers() {
-  const query = `SELECT id,CONCAT(firstname,' ',lastname) as name,firstname,lastname,type_id,role,email,UNIX_TIMESTAMP(convert_tz(valid_until,time_zone,@@GLOBAL.time_zone )) as active_until FROM members_view`;
-  return sqlconnector.withConnection(async (connection) => {
-    return sqlconnector.runExecute(connection, query);
-  });
-}
-
 const SEARCH_RESULT_LIMIT = 20;
 
 /**
@@ -179,17 +168,6 @@ async function getEventHosts() {
   });
 }
 
-/**
- *
- * @returns {Promise<Array>} List of club guests
- */
-async function getGuests() {
-  const query = `SELECT id,CONCAT(firstname,' ',lastname) as name,firstname,lastname,type_id,role,email,UNIX_TIMESTAMP(convert_tz(valid_until,time_zone,@@GLOBAL.time_zone )) as active_until FROM members_view`;
-  return sqlconnector.withConnection(async (connection) => {
-    return sqlconnector.runExecute(connection, query);
-  });
-}
-
 async function addGuest(request) {
   const OPCODE = "ADD_GUEST";
 
@@ -333,34 +311,10 @@ async function getPersons() {
   });
 }
 
-/**
- * Return list of guests inelgible to play
- */
-async function getInactiveGuests() {
-  const query = `SELECT * from inactive_guests`;
-  return sqlconnector.withConnection(async (connection) => {
-    return sqlconnector.runExecute(connection, query);
-  });
-}
-
-/**
- * Return list of guests elgible to play
- */
-async function getActiveGuests() {
-  const query = `SELECT * FROM active_guests`;
-  return sqlconnector.withConnection(async (connection) => {
-    return sqlconnector.runExecute(connection, query);
-  });
-}
-
 module.exports = {
-  getMembers: getMembers,
-  getGuests: getGuests,
   addGuest: addGuest,
   findDuplicateGuest,
   getPersons,
-  getInactiveGuests,
-  getActiveGuests,
   getActivePersons,
   getClubManagers,
   getEventHosts

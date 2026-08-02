@@ -80,69 +80,6 @@ router.get('/active', authGuard, [
      })
 });
 
-router.get('/members', authGuard, (req, res, next) => {
-
-     controller.getMembers()
-          .then((members) => {
-               res.json(members)
-          })
-          .catch((err) => {
-               next(err)
-          })
-});
-
-router.get('/members/active', authGuard, (req, res, next) => {
-
-     controller.getActiveMembers()
-          .then((guests) => {
-               res.json(guests)
-          })
-          .catch((err) => {
-               next(err)
-          })
-
-
-});
-
-router.get('/guests', authGuard, (req, res, next) => {
-
-     controller.getGuests()
-          .then((guests) => {
-               res.json(guests)
-          })
-          .catch((err) => {
-               next(err)
-          })
-
-
-})
-
-router.get('/guests/inactive', authGuard, (req, res, next) => {
-
-     controller.getInactiveGuests()
-          .then((guests) => {
-               res.json(guests)
-          })
-          .catch((err) => {
-               next(err)
-          })
-
-
-})
-
-router.get('/guests/active', authGuard, (req, res, next) => {
-
-     controller.getActiveGuests()
-          .then((guests) => {
-               res.json(guests)
-          })
-          .catch((err) => {
-               next(err)
-          })
-
-
-})
-
 router.post('/guests', rateLimiter.guestregistrationlimiter, [
      body('email').isString().trim().notEmpty().withMessage("Field cannot be empty").isEmail().withMessage("Invalid E-mail Address").customSanitizer((value) => utils.normalizeEmail(value)),
      body('firstname').isString().trim().notEmpty().withMessage("Field cannot be empty").isLength({ min: 2, max: 32}).withMessage("Must be between 2 and 32 characters long").customSanitizer((value) => utils.normalizeWhitespace(value)),
