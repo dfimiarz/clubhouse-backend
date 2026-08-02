@@ -9,7 +9,7 @@ import redisconnector from "../../db/RedisConnector.js";
 import RESTError from "../../utils/RESTError.js";
 
 const originalGetActivePersons = personsController.getActivePersons;
-const originalWithConnection = sqlconnector.withConnection;
+const originalGetConnection = sqlconnector.getConnection;
 const originalRunQuery = sqlconnector.runQuery;
 const originalRunExecute = sqlconnector.runExecute;
 const originalGetJSON = redisconnector.getJSON;
@@ -188,21 +188,14 @@ describe("getActivePersons controller", () => {
     };
 
     // The controller borrows its connection through withConnection, which calls
-    // SqlConnector's module-local getConnection — reassigning the exported
-    // getConnection would not intercept it. Stub the wrapper itself, mirroring
-    // its release-in-finally contract so `released` still means something.
-    sqlconnector.withConnection = async (fn) => {
-      const connection = {
-        release() {
-          released = true;
-        },
-      };
-      try {
-        return await fn(connection);
-      } finally {
-        connection.release();
-      }
-    };
+    // api.getConnection() — so stubbing the export here intercepts it and the
+    // real withConnection still runs, meaning `released` reflects its actual
+    // release-in-finally behaviour rather than a copy of it.
+    sqlconnector.getConnection = async () => ({
+      release() {
+        released = true;
+      },
+    });
 
     // Record through both helpers so the assertions stay valid whichever
     // protocol the controller uses; swapping one for the other is exactly what
@@ -216,7 +209,7 @@ describe("getActivePersons controller", () => {
   });
 
   afterEach(() => {
-    sqlconnector.withConnection = originalWithConnection;
+    sqlconnector.getConnection = originalGetConnection;
     sqlconnector.runQuery = originalRunQuery;
     sqlconnector.runExecute = originalRunExecute;
     redisconnector.getJSON = originalGetJSON;

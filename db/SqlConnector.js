@@ -133,7 +133,10 @@ async function runExecute(connection, query, values = []) {
  * @returns {Promise<T>}
  */
 async function withConnection(fn) {
-  const connection = await getConnection();
+  // Calls the helper through `api` rather than the module-scope binding, so a
+  // test that replaces sqlconnector.getConnection actually intercepts it.
+  // A bare getConnection() here resolves lexically and ignores the export.
+  const connection = await api.getConnection();
   try {
     return await fn(connection);
   } finally {
@@ -156,7 +159,8 @@ async function withConnection(fn) {
 async function withTransaction(fn, options = {}) {
   const mode = options.mode || "default";
 
-  return withConnection(async (connection) => {
+  // Via `api` for the same reason as in withConnection.
+  return api.withConnection(async (connection) => {
     if (mode === "readOnly") {
       await connection.query("START TRANSACTION READ ONLY");
     } else if (mode === "readWrite") {
@@ -185,7 +189,17 @@ async function withTransaction(fn, options = {}) {
   });
 }
 
-module.exports = {
+/**
+ * Single object shared by the module's own internals and its consumers.
+ *
+ * module.exports = { getConnection } would copy the function reference into a
+ * property, leaving the module-scope binding untouched — so replacing
+ * sqlconnector.getConnection in a test would not affect callers inside this
+ * file. Holding one object and calling through it (api.getConnection()) keeps
+ * the two in sync, which is what makes withConnection/withTransaction
+ * stubbable.
+ */
+const api = {
   getPool,
   getConnection,
   runQuery,
@@ -193,3 +207,5 @@ module.exports = {
   withConnection,
   withTransaction,
 };
+
+module.exports = api;

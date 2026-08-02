@@ -81,3 +81,144 @@ describe("SqlConnector.runExecute array guard", () => {
     expect(result).to.deep.equal([{ ok: 1 }]);
   });
 });
+
+// Now that withConnection/withTransaction call through the exports object,
+// replacing sqlconnector.getConnection actually intercepts them — so these
+// wrappers can be tested without a database.
+function txConnection({ failOn = null } = {}) {
+  const calls = [];
+  const fail = (name) => {
+    if (failOn === name) throw new Error(`${name} failed`);
+  };
+  return {
+    calls,
+    released: 0,
+    async query(sql) {
+      calls.push(sql);
+      return [[], []];
+    },
+    async beginTransaction() {
+      calls.push("BEGIN");
+      fail("beginTransaction");
+    },
+    async commit() {
+      calls.push("COMMIT");
+      fail("commit");
+    },
+    async rollback() {
+      calls.push("ROLLBACK");
+      fail("rollback");
+    },
+    release() {
+      this.released++;
+    },
+  };
+}
+
+describe("SqlConnector.withConnection", () => {
+  const original = sqlconnector.getConnection;
+  let connection;
+
+  beforeEach(() => {
+    connection = txConnection();
+    sqlconnector.getConnection = async () => connection;
+  });
+
+  afterEach(() => {
+    sqlconnector.getConnection = original;
+  });
+
+  it("passes the borrowed connection to the callback and returns its result", async () => {
+    const result = await sqlconnector.withConnection(async (c) => {
+      expect(c).to.equal(connection);
+      return "value";
+    });
+
+    expect(result).to.equal("value");
+  });
+
+  it("releases the connection on success", async () => {
+    await sqlconnector.withConnection(async () => "ok");
+
+    expect(connection.released).to.equal(1);
+  });
+
+  it("releases the connection when the callback throws, and rethrows", async () => {
+    try {
+      await sqlconnector.withConnection(async () => {
+        throw new Error("boom");
+      });
+      expect.fail("expected withConnection to rethrow");
+    } catch (err) {
+      expect(err.message).to.equal("boom");
+    }
+
+    expect(connection.released).to.equal(1);
+  });
+});
+
+describe("SqlConnector.withTransaction", () => {
+  const original = sqlconnector.getConnection;
+  let connection;
+
+  const useConnection = (c) => {
+    connection = c;
+    sqlconnector.getConnection = async () => c;
+  };
+
+  beforeEach(() => useConnection(txConnection()));
+  afterEach(() => {
+    sqlconnector.getConnection = original;
+  });
+
+  it("uses beginTransaction and commits by default", async () => {
+    const result = await sqlconnector.withTransaction(async () => "done");
+
+    expect(result).to.equal("done");
+    expect(connection.calls).to.deep.equal(["BEGIN", "COMMIT"]);
+    expect(connection.released).to.equal(1);
+  });
+
+  it("opens a READ ONLY transaction for mode readOnly", async () => {
+    await sqlconnector.withTransaction(async () => null, { mode: "readOnly" });
+
+    expect(connection.calls[0]).to.equal("START TRANSACTION READ ONLY");
+  });
+
+  it("opens a READ WRITE transaction for mode readWrite", async () => {
+    await sqlconnector.withTransaction(async () => null, { mode: "readWrite" });
+
+    expect(connection.calls[0]).to.equal("START TRANSACTION READ WRITE");
+  });
+
+  it("rolls back and rethrows when the body fails", async () => {
+    try {
+      await sqlconnector.withTransaction(async () => {
+        throw new Error("body failed");
+      });
+      expect.fail("expected withTransaction to rethrow");
+    } catch (err) {
+      expect(err.message).to.equal("body failed");
+    }
+
+    expect(connection.calls).to.deep.equal(["BEGIN", "ROLLBACK"]);
+    expect(connection.released).to.equal(1);
+  });
+
+  it("still reports the original error when the rollback itself fails", async () => {
+    useConnection(txConnection({ failOn: "rollback" }));
+
+    try {
+      await sqlconnector.withTransaction(async () => {
+        throw new Error("body failed");
+      });
+      expect.fail("expected withTransaction to rethrow");
+    } catch (err) {
+      // The rollback failure is logged at WARNING; the body's error is what
+      // callers must see.
+      expect(err.message).to.equal("body failed");
+    }
+
+    expect(connection.released).to.equal(1);
+  });
+});
