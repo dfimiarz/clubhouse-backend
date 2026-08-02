@@ -12,23 +12,23 @@
     "test": "mocha --exit --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
   },
   "dependencies": {
-    "@google-cloud/logging": "^11.2.3",
+    "@google-cloud/logging": "^11.3.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "axios": "^1.18.1",
+    "axios": "^1.19.0",
     "body-parser": "^2.3.0",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dayjs": "^1.11.21",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.5.2",
+    "express-rate-limit": "^8.6.1",
     "express-validator": "^7.3.2",
-    "firebase-admin": "^14.1.0",
+    "firebase-admin": "^14.2.0",
     "http-errors": "^2.0.1",
     "ioredis": "^5.11.1",
     "jsonschema": "^1.5.0",
-    "mysql": "^2.18.1",
+    "mysql2": "^3.23.2",
     "pusher": "^5.3.4",
     "svg-captcha": "^1.4.0",
     "uuid": "^13.0.0",
@@ -37,7 +37,7 @@
   "devDependencies": {
     "@types/chai": "^5.2.3",
     "chai": "^6.2.2",
-    "eslint": "^10.6.0",
+    "eslint": "^10.8.0",
     "mocha": "^11.7.6",
     "supertest": "^7.2.2"
   }
