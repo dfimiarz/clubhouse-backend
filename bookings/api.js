@@ -180,7 +180,7 @@ router.get('/:id', authGuard, (req, res, next) => {
      // eslint-disable-next-line no-unused-vars
      (req, res, next) => {
           //Fiter out values that are needed by the front end
-          const filtered_booking = (({ start, end, permissions, booking_type_desc, date, court_id, court_name, bumpable, notes, id, etag, players, utc_start, utc_end, utc_req_time, type }) => {
+          const filtered_booking = (({ start, end, permissions, booking_type_desc, booking_type_lbl, calendar_style, member_rebookable, same_day_only, min_participant, date, court_id, court_name, bumpable, notes, id, etag, players, utc_start, utc_end, utc_req_time, type }) => {
                return {
                     'start': start,
                     'end': end,
@@ -190,6 +190,11 @@ router.get('/:id', authGuard, (req, res, next) => {
                     'permissions': Array.from(permissions),
                     'type': type,
                     'booking_type_desc': booking_type_desc,
+                    'booking_type_lbl': booking_type_lbl,
+                    'calendar_style': calendar_style,
+                    'member_rebookable': member_rebookable,
+                    'same_day_only': same_day_only,
+                    'min_participant': min_participant,
                     'date': date,
                     'court': court_id,
                     'court_name': court_name,

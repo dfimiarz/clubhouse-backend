@@ -67,6 +67,11 @@ async function getBookingsForDate(date) {
                                 updated,
                                 notes,
                                 at.desc AS booking_type_desc,
+                                at.lbl AS booking_type_lbl,
+                                at.calendar_style AS calendar_style,
+                                at.member_rebookable AS member_rebookable,
+                                at.same_day_only AS same_day_only,
+                                at.min_participant AS min_participant,
                                 at.group AS group_id,
                                 ag.utility_factor AS utility
                             FROM
@@ -136,6 +141,11 @@ async function getBookingsForDate(date) {
         created: element.created,
         players: [],
         booking_type_desc: element.booking_type_desc,
+        booking_type_lbl: element.booking_type_lbl,
+        calendar_style: element.calendar_style,
+        member_rebookable: element.member_rebookable,
+        same_day_only: element.same_day_only,
+        min_participant: element.min_participant,
         group_id: element.group_id,
         utility: element.utility,
       });
@@ -227,6 +237,34 @@ async function addBooking(request) {
         )
       ) {
         throw new RESTError(422, "Person(s) not found");
+      }
+
+      // Enforce activity_type.min_participant against the players list
+      const activity_type_q = `SELECT id, min_participant
+                               FROM activity_type
+                               WHERE id = ?
+                               LOCK IN SHARE MODE`;
+      const activity_type_result = await sqlconnector.runQuery(
+        connection,
+        activity_type_q,
+        [request.body.type]
+      );
+
+      if (
+        !(
+          Array.isArray(activity_type_result) &&
+          activity_type_result.length === 1
+        )
+      ) {
+        throw new RESTError(422, "Invalid booking type");
+      }
+
+      const min_participant = activity_type_result[0].min_participant ?? 1;
+      if (players.length < min_participant) {
+        throw new RESTError(
+          422,
+          `Activity requires at least ${min_participant} participant${min_participant === 1 ? "" : "s"}`
+        );
       }
 
       const initValues = {
