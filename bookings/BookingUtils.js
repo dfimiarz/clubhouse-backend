@@ -260,21 +260,24 @@ async function getNewBooking(connection, initValues) {
         etag: null
     }
 
+    // Type must exist and be enabled for this club; effective min via COALESCE
     const activity_type_q = `SELECT
-                                \`desc\` AS booking_type_desc,
-                                lbl AS booking_type_lbl,
-                                calendar_style,
-                                member_rebookable,
-                                same_day_only,
-                                min_participant
-                             FROM activity_type
-                             WHERE id = ?
+                                at.\`desc\` AS booking_type_desc,
+                                at.lbl AS booking_type_lbl,
+                                at.calendar_style,
+                                at.member_rebookable,
+                                at.same_day_only,
+                                COALESCE(ac.min_participant, at.min_participant) AS min_participant
+                             FROM activity_type at
+                             JOIN activity_club ac ON ac.activity_type_id = at.id
+                             WHERE at.id = ?
+                               AND ac.club_id = ?
                              LOCK IN SHARE MODE`;
 
     const activity_type_result = await sqlconnector.runQuery(
         connection,
         activity_type_q,
-        [booking.type]
+        [booking.type, CLUB_ID]
     );
 
     if (!Array.isArray(activity_type_result) || activity_type_result.length !== 1) {

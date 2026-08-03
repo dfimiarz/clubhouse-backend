@@ -239,15 +239,18 @@ async function addBooking(request) {
         throw new RESTError(422, "Person(s) not found");
       }
 
-      // Enforce activity_type.min_participant against the players list
-      const activity_type_q = `SELECT id, min_participant
-                               FROM activity_type
-                               WHERE id = ?
+      // Type must be enabled for this club; effective min (club override or global)
+      const activity_type_q = `SELECT at.id,
+                                      COALESCE(ac.min_participant, at.min_participant) AS min_participant
+                               FROM activity_type at
+                               JOIN activity_club ac ON ac.activity_type_id = at.id
+                               WHERE at.id = ?
+                                 AND ac.club_id = ?
                                LOCK IN SHARE MODE`;
       const activity_type_result = await sqlconnector.runQuery(
         connection,
         activity_type_q,
-        [request.body.type]
+        [request.body.type, CLUB_ID]
       );
 
       if (
@@ -265,6 +268,29 @@ async function addBooking(request) {
           422,
           `Activity requires at least ${min_participant} participant${min_participant === 1 ? "" : "s"}`
         );
+      }
+
+      // Court must belong to this club and support the activity type
+      const court_support_q = `SELECT 1
+                               FROM activity_supported s
+                               JOIN court c ON c.id = s.court
+                               WHERE s.court = ?
+                                 AND s.activity_type = ?
+                                 AND c.club = ?
+                               LOCK IN SHARE MODE`;
+      const court_support_result = await sqlconnector.runQuery(
+        connection,
+        court_support_q,
+        [request.body.court, request.body.type, CLUB_ID]
+      );
+
+      if (
+        !(
+          Array.isArray(court_support_result) &&
+          court_support_result.length === 1
+        )
+      ) {
+        throw new RESTError(422, "Court does not support this activity");
       }
 
       const initValues = {
