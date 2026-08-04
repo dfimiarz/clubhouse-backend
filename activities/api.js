@@ -1,5 +1,6 @@
 const express = require('express');
-const { query, validationResult } = require('express-validator');
+const { z } = require('zod');
+const { validate, iso8601 } = require('./../utils/validate');
 const activities_ctrl = require('./controller');
 const { authGuard } = require('../middleware/clientauth');
 const RESTError = require('./../utils/RESTError');
@@ -11,33 +12,26 @@ const router = express.Router();
 
 router.use(express.json());
 
-router.get('/', authGuard,[
-    query('from').optional().isISO8601().withMessage("Invalid FROM date"),
-    query('to').optional().isISO8601().withMessage("Invalid TO date"),
+const dateRangeQuery = z.object({
+    from: iso8601("Invalid FROM date").optional(),
+    to: iso8601("Invalid TO date").optional()
+})
     //if from or to is set, both must be set
-    query('from').custom((value, { req }) => {
-        if (value && !req.query.to) {
-            throw new Error('TO date is required');
-        }
-        return true;
-    }),
-    query('to').custom((value, { req }) => {
-        if (value && !req.query.from) {
-            throw new Error('FROM date is required');
-        }
+    .refine((value) => !value.from || value.to, {
+        path: ['from'],
+        error: 'TO date is required'
+    })
+    .refine((value) => !value.to || value.from, {
+        path: ['to'],
+        error: 'FROM date is required'
+    });
 
-        return true;
-    }),
-
-], async (req, res, next) => {
+router.get('/', authGuard, validate(
+    { query: dateRangeQuery },
+    { status: 400, payload: (fielderrors) => fielderrors }
+), async (req, res, next) => {
 
     try {
-
-        //Validate request
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return next(new RESTError(400, errors.array({ onlyFirstError: true })));
-        }
 
         //Get the club time zone
         const { time_zone } = await getClubInfo();
@@ -51,7 +45,7 @@ router.get('/', authGuard,[
 
     } catch (err) {
         log(appLogLevels.ERROR, err);
-        next(new RESTError(err.message, 400));
+        next(new RESTError(400, err.message));
     }
 });
 

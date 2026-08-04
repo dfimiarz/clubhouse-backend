@@ -1088,7 +1088,6 @@ __metadata:
     eslint: "npm:^10.8.0"
     express: "npm:^5.2.1"
     express-rate-limit: "npm:^8.6.1"
-    express-validator: "npm:^7.3.2"
     firebase-admin: "npm:^14.2.0"
     http-errors: "npm:^2.0.1"
     ioredis: "npm:^5.11.1"
@@ -1099,7 +1098,9 @@ __metadata:
     supertest: "npm:^7.2.2"
     svg-captcha: "npm:^1.4.0"
     uuid: "npm:^13.0.0"
+    validator: "npm:^13.15.35"
     winston: "npm:^3.19.0"
+    zod: "npm:^4.4.3"
   languageName: unknown
   linkType: soft
 
@@ -1657,16 +1658,6 @@ __metadata:
   peerDependencies:
     express: ">= 4.11"
   checksum: 10c0/cb0e30283ef48925d8fe9efce6337a5877bb9a581f32f2594b08303dc075c24f1a52187e403c7f9889888d99eaabd9ac22182d2dadbd0b8acf3725e818131052
-  languageName: node
-  linkType: hard
-
-"express-validator@npm:^7.3.2":
-  version: 7.3.2
-  resolution: "express-validator@npm:7.3.2"
-  dependencies:
-    lodash: "npm:^4.18.1"
-    validator: "npm:~13.15.23"
-  checksum: 10c0/83301e0171ec2f1b5ff73f538f36ebe73d86a4e63b621c88b13b580a5334bd221405cbe37a619bec261512e09b3029d03ca3d7b703f2ec4e6b2890270f114fcb
   languageName: node
   linkType: hard
 
@@ -2839,13 +2830,6 @@ __metadata:
   version: 4.1.1
   resolution: "lodash.once@npm:4.1.1"
   checksum: 10c0/46a9a0a66c45dd812fcc016e46605d85ad599fe87d71a02f6736220554b52ffbe82e79a483ad40f52a8a95755b0d1077fba259da8bfb6694a7abbf4a48f1fc04
-  languageName: node
-  linkType: hard
-
-"lodash@npm:^4.18.1":
-  version: 4.18.1
-  resolution: "lodash@npm:4.18.1"
-  checksum: 10c0/757228fc68805c59789e82185135cf85f05d0b2d3d54631d680ca79ec21944ec8314d4533639a14b8bcfbd97a517e78960933041a5af17ecb693ec6eecb99a27
   languageName: node
   linkType: hard
 
@@ -4111,10 +4095,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"validator@npm:~13.15.23":
-  version: 13.15.26
-  resolution: "validator@npm:13.15.26"
-  checksum: 10c0/d66041685c531423f6b514d0481228503b96682fe30ed7925ad77ff3cd08c3983dc94f45e18457e44f62f89027b94a3342009d65421800ce65f6e0d2c6eaf7fc
+"validator@npm:^13.15.35":
+  version: 13.15.35
+  resolution: "validator@npm:13.15.35"
+  checksum: 10c0/1958ebcad578128d154853a2b9bf5b95e7738dcc7d1d065e50a969812272312ec379dcaf375b9d7545e04a71de6755f60f5a4b49c1405737a9c80e11da297eef
   languageName: node
   linkType: hard
 
@@ -4296,5 +4280,12 @@ __metadata:
   version: 0.1.0
   resolution: "yocto-queue@npm:0.1.0"
   checksum: 10c0/dceb44c28578b31641e13695d200d34ec4ab3966a5729814d5445b194933c096b7ced71494ce53a0e8820685d1d010df8b2422e5bf2cdea7e469d97ffbea306f
+  languageName: node
+  linkType: hard
+
+"zod@npm:^4.4.3":
+  version: 4.4.3
+  resolution: "zod@npm:4.4.3"
+  checksum: 10c0/7ea31b558e88f9faf44f31dd185e2e1cbf51fed3081787fb96cc2534749b50c0acfc6da7f0922a7353ed092dd358c7d50c28ea96c94d04af64191bd33152eca3
   languageName: node
   linkType: hard
