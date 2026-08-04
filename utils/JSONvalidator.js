@@ -92,7 +92,8 @@ function formatErrorsForLogging(validatorsErrors, message = "Unable to validate 
         let error = errors[i];
 
         //Make sure that the error object has the required properties
-        if (!error.hasOwnProperty("instancePath") || !error.hasOwnProperty("message")) {
+        if (!Object.prototype.hasOwnProperty.call(error, "instancePath") ||
+            !Object.prototype.hasOwnProperty.call(error, "message")) {
             continue;
         }
 

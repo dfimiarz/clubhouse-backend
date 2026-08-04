@@ -9,6 +9,7 @@
     "start": "node server.js",
     "watch": "node --watch server.js",
     "cache:clear": "node scripts/clearcache.js",
+    "lint": "eslint .",
     "test": "mocha --exit --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
   },
   "dependencies": {
@@ -36,9 +37,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/chai": "^5.2.3",
     "chai": "^6.2.2",
     "eslint": "^10.8.0",
+    "globals": "^17.8.0",
     "mocha": "^11.7.6",
     "supertest": "^7.2.2"
   }

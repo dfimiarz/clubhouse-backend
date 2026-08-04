@@ -70,6 +70,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@eslint/js@npm:^10.0.1":
+  version: 10.0.1
+  resolution: "@eslint/js@npm:10.0.1"
+  peerDependencies:
+    eslint: ^10.0.0
+  peerDependenciesMeta:
+    eslint:
+      optional: true
+  checksum: 10c0/9f3fcaf71ba7fdf65d82e8faad6ecfe97e11801cc3c362b306a88ea1ed1344ae0d35330dddb0e8ad18f010f6687a70b75491b9e01c8af57acd7987cee6b3ec6c
+  languageName: node
+  linkType: hard
+
 "@eslint/object-schema@npm:^3.0.5":
   version: 3.0.5
   resolution: "@eslint/object-schema@npm:3.0.5"
@@ -1074,6 +1086,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "clubhouse-backend@workspace:."
   dependencies:
+    "@eslint/js": "npm:^10.0.1"
     "@google-cloud/logging": "npm:^11.3.0"
     "@types/chai": "npm:^5.2.3"
     ajv: "npm:^8.20.0"
@@ -1089,6 +1102,7 @@ __metadata:
     express: "npm:^5.2.1"
     express-rate-limit: "npm:^8.6.1"
     firebase-admin: "npm:^14.2.0"
+    globals: "npm:^17.8.0"
     http-errors: "npm:^2.0.1"
     ioredis: "npm:^5.11.1"
     jsonschema: "npm:^1.5.0"
@@ -2166,6 +2180,13 @@ __metadata:
   bin:
     glob: dist/esm/bin.mjs
   checksum: 10c0/19a9759ea77b8e3ca0a43c2f07ecddc2ad46216b786bb8f993c445aee80d345925a21e5280c7b7c6c59e860a0154b84e4b2b60321fea92cd3c56b4a7489f160e
+  languageName: node
+  linkType: hard
+
+"globals@npm:^17.8.0":
+  version: 17.8.0
+  resolution: "globals@npm:17.8.0"
+  checksum: 10c0/e31b36cef3befd446487674dc6ca7b8f8e62a3b76aadd975dbf80ffa732366b3ac58df8941999eb6b1406d97480103711db85d2a49c955da47ff5ec688bee9b5
   languageName: node
   linkType: hard
 

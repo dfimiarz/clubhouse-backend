@@ -3,9 +3,9 @@ const club_id = process.env.CLUB_ID;
 
 /**
  * Activity types enabled for this club (via activity_club).
- * @param { Request } request 
+ * @param { Request } _request
  */
-async function getBookingTypes(request) {
+async function getBookingTypes(_request) {
 
     // Effective min_participant: club override if set, else global activity_type default
     const query = `SELECT

@@ -2,7 +2,6 @@ const sqlconnector = require('../db/SqlConnector');
 const RESTError = require('./../utils/RESTError');
 const { storeJSON, getJSON } = require('./../db/RedisConnector');
 const { log, appLogLevels } = require('./../utils/logger/logger');
-const e = require('express');
 
 const CLUB_ID = process.env.CLUB_ID;
 

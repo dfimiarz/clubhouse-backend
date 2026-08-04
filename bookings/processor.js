@@ -223,7 +223,7 @@ async function changeCourt(id, cmd) {
             throw new RESTError(422, "Court has not changed");
         }
 
-        let initValues = null;
+        let initValues;
 
         if (booking.utc_start > booking.utc_req_time) {
             //Session is in the future so change the court right away

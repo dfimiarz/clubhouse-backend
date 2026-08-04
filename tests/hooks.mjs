@@ -1,7 +1,5 @@
 import { setupDatabase, teardownDatabase } from "./test-setup.mjs";
 
-let server;
-
 export const mochaGlobalSetup = async () => {
   try {
     await setupDatabase();

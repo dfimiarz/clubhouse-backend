@@ -4,9 +4,9 @@ const CLUB_ID = process.env.CLUB_ID;
 
 /**
  * Courts for this club, each with supported_activity_types from activity_supported.
- * @param { Request } request
+ * @param { Request } _request
  */
-async function getCourts(request) {
+async function getCourts(_request) {
   const courts_query = `SELECT id, club, name
                         FROM court
                         WHERE club = ?

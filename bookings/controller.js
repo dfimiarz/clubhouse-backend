@@ -437,7 +437,7 @@ async function getOverlappingBookings(court, date, start, end) {
         };
       });
     });
-  } catch (err) {
+  } catch {
     throw new RESTError(500, "Error querying database");
   }
 }
@@ -504,7 +504,7 @@ async function getCourtAvailability(date, start, end) {
 
       return Array.from(availability_map.values());
     });
-  } catch (err) {
+  } catch {
     throw new RESTError(500, "Error querying database");
   }
 }
