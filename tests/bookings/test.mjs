@@ -42,7 +42,7 @@ describe("Batch Booking Test", () => {
       .set("Content-Type", "application/json")
       .send(data)
       .expect(200)
-      .end(function (err, res) {
+      .end(function (err, _res) {
         if (err) return done(err);
         return done();
       });
@@ -55,7 +55,7 @@ describe("Batch Booking Test", () => {
       .set("Content-Type", "application/json")
       .send(data)
       .expect(400)
-      .end(function (err, res) {
+      .end(function (err, _res) {
         if (err) return done(err);
         return done();
       });
@@ -73,7 +73,7 @@ describe("Batch Booking Test", () => {
       .set("Content-Type", "application/json")
       .send(data)
       .expect(400)
-      .end(function (err, res) {
+      .end(function (err, _res) {
         if (err) return done(err);
         return done();
       });

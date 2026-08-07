@@ -1,5 +1,7 @@
 const express = require('express')
-const { check, validationResult, body, query } = require('express-validator')
+const { z } = require('zod')
+const validator = require('validator')
+const { validate } = require('./../utils/validate')
 const controller = require('./controller')
 const RESTError = require('./../utils/RESTError');
 const { authGuard } = require('../middleware/clientauth')
@@ -10,13 +12,6 @@ const rateLimiter = require('../rate-limiter/rate-limiter')
 const router = express.Router();
 
 router.use(express.json())
-
-function formatFieldErrors(errors) {
-     return errors.array({ onlyFirstError: true }).map((error) => ({
-          param: error.param || error.path,
-          msg: error.msg
-     }))
-}
 
 /**
  * Route to get all persons
@@ -52,18 +47,19 @@ router.get('/eventhosts', authGuard, (req, res, next) => {
  * a list of ids (takes precedence over search), or guest host status.
  * Without params returns the full active list.
  */
-router.get('/active', authGuard, [
-     query('search').optional().isString().trim().isLength({ min: 2, max: 50 }).withMessage("Search must be between 2 and 50 characters"),
-     query('ids').optional().matches(/^\d+(,\d+)*$/).withMessage("ids must be a comma separated list of integers")
-          .custom((value) => value.split(',').length <= 10).withMessage("Too many ids"),
-     query('host').optional().isIn(['1']).withMessage("host must be 1")
-], (req, res, next) => {
+const activePersonsQuery = z.object({
+     search: z.string("Search must be between 2 and 50 characters").trim()
+          .min(2, "Search must be between 2 and 50 characters")
+          .max(50, "Search must be between 2 and 50 characters")
+          .optional(),
+     ids: z.string("ids must be a comma separated list of integers")
+          .regex(/^\d+(,\d+)*$/, "ids must be a comma separated list of integers")
+          .refine((value) => value.split(',').length <= 10, "Too many ids")
+          .optional(),
+     host: z.literal('1', "host must be 1").optional()
+})
 
-     const errors = validationResult(req);
-
-     if (!errors.isEmpty()) {
-          return next(new RESTError(422, { fielderrors: formatFieldErrors(errors) }))
-     }
+router.get('/active', authGuard, validate({ query: activePersonsQuery }), (req, res, next) => {
 
      const filters = {
           search: req.query.search ? String(req.query.search).trim() : undefined,
@@ -80,24 +76,52 @@ router.get('/active', authGuard, [
      })
 });
 
-router.post('/guests', rateLimiter.guestregistrationlimiter, [
-     body('email').isString().trim().notEmpty().withMessage("Field cannot be empty").isEmail().withMessage("Invalid E-mail Address").customSanitizer((value) => utils.normalizeEmail(value)),
-     body('firstname').isString().trim().notEmpty().withMessage("Field cannot be empty").isLength({ min: 2, max: 32}).withMessage("Must be between 2 and 32 characters long").customSanitizer((value) => utils.normalizeWhitespace(value)),
-     body('lastname').isString().trim().notEmpty().withMessage("Field cannot be empty").isLength({ min: 2, max: 32}).withMessage("Must be between 2 and 32 characters long").customSanitizer((value) => utils.normalizeWhitespace(value)),
-     body('phone').optional({ checkFalsy: true }).trim().isMobilePhone('en-US').withMessage("Must be a valid phone number").customSanitizer((value) => utils.normalizePhone(value)),
-     check('agreement').exists().isBoolean().isIn([true]).withMessage("Agreement required")
-], async (req, res, next) => {
+const EMPTY_FIELD = "Field cannot be empty"
+const NAME_LENGTH = "Must be between 2 and 32 characters long"
 
-     //Check if captcha is set for users that are not logged in
-     if (!utils.isAuthenticated(res)) {
-          await body('hcaptcha').notEmpty().withMessage("hCaptcha must be set").run(req);
-     }
+const guestName = z.string(EMPTY_FIELD).trim()
+     .min(1, EMPTY_FIELD)
+     .min(2, NAME_LENGTH)
+     .max(32, NAME_LENGTH)
+     .transform((value) => utils.normalizeWhitespace(value))
 
-     const errors = validationResult(req);
+const guestBody = z.object({
+     email: z.string(EMPTY_FIELD).trim()
+          .min(1, EMPTY_FIELD)
+          .refine((value) => validator.isEmail(value), "Invalid E-mail Address")
+          .transform((value) => utils.normalizeEmail(value)),
+     firstname: guestName,
+     lastname: guestName,
+     //Every falsy phone number is treated as absent, as optional({ checkFalsy: true }) did
+     phone: z.preprocess(
+          (value) => (value ? value : undefined),
+          z.string().trim()
+               .refine((value) => validator.isMobilePhone(value, 'en-US'), "Must be a valid phone number")
+               .transform((value) => utils.normalizePhone(value))
+               .optional()
+     ),
+     agreement: z.union([z.literal(true), z.literal('true')], { error: "Agreement required" })
+})
 
-     if (!errors.isEmpty()) {
-          return next(new RESTError(422, { fielderrors: formatFieldErrors(errors) }))
-     }
+/**
+ * Guests registering while logged out must clear a captcha, so the hcaptcha
+ * rule depends on the auth state of the request.
+ *
+ * @param {import('express').Request} _req
+ * @param {import('express').Response} res
+ * @returns {Object}
+ */
+function guestSchemas(_req, res) {
+     //Authenticated callers never have the token checked, so it is left unvalidated
+     //rather than typed: the client posts hcaptcha: null when the widget is hidden.
+     const hcaptcha = utils.isAuthenticated(res)
+          ? z.any().optional()
+          : z.string("hCaptcha must be set").min(1, "hCaptcha must be set")
+
+     return { body: guestBody.extend({ hcaptcha }) }
+}
+
+router.post('/guests', rateLimiter.guestregistrationlimiter, validate(guestSchemas), async (req, res, next) => {
 
      try {
           //Run captcha verification is users is not authenticated

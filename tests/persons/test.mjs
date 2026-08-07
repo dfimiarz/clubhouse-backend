@@ -86,6 +86,24 @@ describe("Guest registration security", () => {
     expect(response.status).to.equal(201);
   });
 
+  it("allows authenticated registration when the client posts a null captcha", async () => {
+    const app = createApp({ userauth: true });
+
+    const response = await request(app)
+      .post("/persons/guests")
+      .set("X-Forwarded-For", "198.51.100.12")
+      .send({
+        firstname: "John",
+        lastname: "Doe",
+        email: "john@example.com",
+        phone: null,
+        hcaptcha: null,
+        agreement: true,
+      });
+
+    expect(response.status).to.equal(201);
+  });
+
   it("rejects replayed hcaptcha tokens", async () => {
     authController.verifyhCaptcha = async () => ({
       success: false,

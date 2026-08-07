@@ -1,6 +1,6 @@
 const express = require('express')
-const { validationResult, query, param } = require('express-validator');
-const RESTError = require('./../utils/RESTError');
+const { z } = require('zod');
+const { validate, iso8601 } = require('./../utils/validate');
 const { roleGuard } = require('../middleware/clientauth');
 const roles = require('../utils/SystemRoles')
 const { getReportTypes } = require('./reportTypes');
@@ -26,34 +26,33 @@ router.get('/', roleGuard([roles.ADMIN, roles.MANAGER]), (req, res, _next) => {
 /**
  * Route to get a report based on the report name
  */
-router.get('/:type', roleGuard([roles.ADMIN, roles.MANAGER]), [
-    param('type').isString().withMessage("Invalid report name").isIn(getReportTypes()).withMessage("Invalid report type"),
-    query('from').optional().isISO8601().withMessage("Invalid FROM date"),
-    query('to').optional().isISO8601().withMessage("Invalid TO date"),
+const reportParams = z.object({
+    type: z.string("Invalid report name").refine(
+        (value) => getReportTypes().includes(value),
+        "Invalid report type"
+    )
+});
+
+const reportQuery = z.object({
+    from: iso8601("Invalid FROM date").optional(),
+    to: iso8601("Invalid TO date").optional()
+})
     //if from or to is set, both must be set
-    query('from').custom((value, { req }) => {
-        if (value && !req.query.to) {
-            throw new Error('TO date is required');
-        }
-        return true;
-    }),
-    query('to').custom((value, { req }) => {
-        if (value && !req.query.from) {
-            throw new Error('FROM date is required');
-        }
+    .refine((value) => !value.from || value.to, {
+        path: ['from'],
+        error: 'TO date is required'
+    })
+    .refine((value) => !value.to || value.from, {
+        path: ['to'],
+        error: 'FROM date is required'
+    });
 
-        return true;
-    }),
+router.get('/:type', roleGuard([roles.ADMIN, roles.MANAGER]), validate(
+    { params: reportParams, query: reportQuery },
+    { status: 400, payload: (fielderrors) => fielderrors }
+), async (req, res, next) => {
 
-], async (req, res, next) => {
-    
     try {
-        //Validate request
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            throw new RESTError(400, errors.array({ onlyFirstError: true }));
-        }
-
         //Get the club time zone
         const { time_zone } = await getClubInfo();
 

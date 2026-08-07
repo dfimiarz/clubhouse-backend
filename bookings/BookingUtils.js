@@ -20,6 +20,10 @@ const booking_q = `SELECT c.id AS court_id,
                         a.type,
                         at.desc AS booking_type_desc,
                         at.lbl AS booking_type_lbl,
+                        at.calendar_style AS calendar_style,
+                        at.member_rebookable AS member_rebookable,
+                        at.same_day_only AS same_day_only,
+                        at.min_participant AS min_participant,
                         a.bumpable,
                         a.created,
                         a.updated,
@@ -159,6 +163,10 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
         type: booking_result[0]['type'],
         booking_type_desc: booking_result[0]['booking_type_desc'],
         booking_type_lbl: booking_result[0]['booking_type_lbl'],
+        calendar_style: booking_result[0]['calendar_style'],
+        member_rebookable: booking_result[0]['member_rebookable'],
+        same_day_only: booking_result[0]['same_day_only'],
+        min_participant: booking_result[0]['min_participant'],
         bumpable: booking_result[0]['bumpable'],
         created: booking_result[0]['created'],
         updated: booking_result[0]['updated'],
@@ -251,6 +259,37 @@ async function getNewBooking(connection, initValues) {
         utc_updated: null,
         etag: null
     }
+
+    // Type must exist and be enabled for this club; effective min via COALESCE
+    const activity_type_q = `SELECT
+                                at.\`desc\` AS booking_type_desc,
+                                at.lbl AS booking_type_lbl,
+                                at.calendar_style,
+                                at.member_rebookable,
+                                at.same_day_only,
+                                COALESCE(ac.min_participant, at.min_participant) AS min_participant
+                             FROM activity_type at
+                             JOIN activity_club ac ON ac.activity_type_id = at.id
+                             WHERE at.id = ?
+                               AND ac.club_id = ?
+                             LOCK IN SHARE MODE`;
+
+    const activity_type_result = await sqlconnector.runQuery(
+        connection,
+        activity_type_q,
+        [booking.type, CLUB_ID]
+    );
+
+    if (!Array.isArray(activity_type_result) || activity_type_result.length !== 1) {
+        return null
+    }
+
+    booking.booking_type_desc = activity_type_result[0].booking_type_desc;
+    booking.booking_type_lbl = activity_type_result[0].booking_type_lbl;
+    booking.calendar_style = activity_type_result[0].calendar_style;
+    booking.member_rebookable = activity_type_result[0].member_rebookable;
+    booking.same_day_only = activity_type_result[0].same_day_only;
+    booking.min_participant = activity_type_result[0].min_participant;
 
     let bookingtime_result = await sqlconnector.runQuery(connection, booking_time_q, {
         date: booking.date,

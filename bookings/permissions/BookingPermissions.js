@@ -20,7 +20,7 @@ function checkPermission( actiontype,bookinginfo ){
     return validators.reduce((acc,valFunc) => {
         const result = valFunc(bookinginfo);
 
-        if( !!result ){
+        if( result ){
             acc.push(result);
         }
         

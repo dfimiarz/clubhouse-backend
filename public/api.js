@@ -1,9 +1,8 @@
 const express = require("express");
-const { query, validationResult } = require("express-validator");
+const { z } = require("zod");
+const { validate, isoDate } = require("../utils/validate");
 const controller = require("./controller");
-const RESTError = require("../utils/RESTError");
 const { publicreadlimiter } = require("../rate-limiter/rate-limiter");
-const { log, appLogLevels } = require("../utils/logger/logger");
 
 const router = express.Router();
 
@@ -34,22 +33,15 @@ router.get("/club_schedule", (_req, res, next) => {
 
 router.get(
   "/bookings",
-  [
-    query("date")
-      .matches(/^\d{4}-\d{2}-\d{2}$/)
-      .withMessage("Date must be in YYYY-MM-DD format")
-      .bail()
-      .isISO8601({ strict: true, strictSeparator: true })
-      .withMessage("Date must be in ISO8601 format"),
-  ],
-  (req, res, next) => {
-    const errors = validationResult(req);
-
-    if (!errors.isEmpty()) {
-      log(appLogLevels.ERROR, `Public booking date error: ${JSON.stringify(errors.array())}`);
-      return next(new RESTError(422, "Invalid date parameter"));
+  validate(
+    { query: z.object({ date: isoDate("Date must be in YYYY-MM-DD format") }) },
+    {
+      status: 422,
+      payload: () => "Invalid date parameter",
+      logPrefix: "Public booking date error",
     }
-
+  ),
+  (req, res, next) => {
     controller
       .getPublicBookingsForDate(req.query.date)
       .then((bookings) => {

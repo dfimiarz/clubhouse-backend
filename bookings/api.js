@@ -1,9 +1,9 @@
 const express = require('express');
-const { validationResult, body, query } = require('express-validator')
+const { z } = require('zod')
+const { validate, hhmm, isoDate, intLike, requiredIntLike } = require('./../utils/validate')
 const matchcontroller = require('./controller')
 const { checkBookingPermissions, validatePatchRequest, validateBatchInsertRequest } = require('./middleware')
 const { authGuard } = require('../middleware/clientauth')
-const RESTError = require('./../utils/RESTError')
 const pusher = require('./../pusher/Pusher')
 const { log, appLogLevels } = require('./../utils/logger/logger');
 
@@ -15,18 +15,12 @@ router.use(express.json())
 /**
  * Route to get all bookings for a date
  */
-router.get('/', authGuard, [
-     // Keep as YYYY-MM-DD string (do not .toDate()) to avoid timezone day-shift in SQL
-     query('date').isDate().withMessage('Invalid date'),
-],
+router.get('/', authGuard, validate(
+     // Keep as YYYY-MM-DD string (do not coerce to Date) to avoid timezone day-shift in SQL
+     { query: z.object({ date: isoDate('Invalid date') }) },
+     { payload: () => "Invalid date parameter", logPrefix: "Date error" }
+),
      (req, res, next) => {
-
-          const errors = validationResult(req);
-
-          if (!errors.isEmpty()) {
-               log(appLogLevels.ERROR, "Date error:" + JSON.stringify(errors.array()));
-               return next(new RESTError(422, "Invalid date parameter"))
-          }
 
           const date = req.query.date ? req.query.date : null
 
@@ -44,20 +38,18 @@ router.get('/', authGuard, [
  *  Route to get overlapping sesion for specific date and time
  */
 
-router.get('/overlapping', authGuard, [
-     query('date').isDate().withMessage("Invalid date"),
-     query('start').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid start"),
-     query('end').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid end"),
-     query('court').isInt().withMessage("Invalid court")
-],
+router.get('/overlapping', authGuard, validate(
+     {
+          query: z.object({
+               date: isoDate("Invalid date"),
+               start: hhmm("Invalid start"),
+               end: hhmm("Invalid end"),
+               court: intLike("Invalid court")
+          })
+     },
+     { payload: () => "Invalid query parameter", logPrefix: "Check Overlap parameter error" }
+),
      (req, res, next) => {
-
-          const errors = validationResult(req);
-
-          if (!errors.isEmpty()) {
-               log(appLogLevels.ERROR, "Check Overlap parameter error: " + JSON.stringify(errors.array()));
-               return next(new RESTError(422, "Invalid query parameter"))
-          }
 
           const date = req.query.date ? req.query.date : null;
           const start = req.query.start ? req.query.start : null;
@@ -75,19 +67,17 @@ router.get('/overlapping', authGuard, [
      }
 );
 
-router.get('/availability', authGuard, [
-     query('date').isDate().withMessage("Invalid date"),
-     query('start').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid start"),
-     query('end').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid end"),
-],
+router.get('/availability', authGuard, validate(
+     {
+          query: z.object({
+               date: isoDate("Invalid date"),
+               start: hhmm("Invalid start"),
+               end: hhmm("Invalid end")
+          })
+     },
+     { payload: () => "Invalid query parameter", logPrefix: "Court availability parameter error" }
+),
      (req, res, next) => {
-
-          const errors = validationResult(req);
-
-          if (!errors.isEmpty()) {
-               log(appLogLevels.ERROR, "Court availability parameter error: " + JSON.stringify(errors.array()));
-               return next(new RESTError(422, "Invalid query parameter"))
-          }
 
           const date = req.query.date ? req.query.date : null;
           const start = req.query.start ? req.query.start : null;
@@ -121,28 +111,31 @@ router.post('/batch', validateBatchInsertRequest, (req, res, next) => {
 
 });
 
-router.post('/', [
-     body('court').isInt().withMessage("Invalid court id"),
-     body('bumpable').toInt().custom((val) => {
-          return [0, 1].indexOf(val) === -1 ? false : true;
-     }).withMessage("Value not allowed"),
-     body('type').isInt().withMessage("Invalid booking type"),
-     body('date').isDate().withMessage("Invalid date"),
-     body('players').isArray({ min: 1, max: 4 }).withMessage("Incorrect number of players"),
-     body('players.*.id').exists().withMessage("Player ID must be set").isInt().withMessage("Incorrect player ID"),
-     body('players.*.type').exists().withMessage("Player TYPE must be set").isInt().withMessage("Incorrect player TYPE"),
-     body('start').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid format"),
-     body('end').matches(/^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/, 'i').withMessage("Invalid format"),
-     body('note').trim()
+const newBookingBody = z.object({
+     court: intLike("Invalid court id"),
+     bumpable: z.union(
+          [z.literal(0), z.literal(1), z.literal('0'), z.literal('1')],
+          { error: "Value not allowed" }
+     ).transform(Number),
+     type: intLike("Invalid booking type"),
+     date: isoDate("Invalid date"),
+     players: z.array(
+          z.object({
+               id: requiredIntLike("Player ID must be set", "Incorrect player ID"),
+               type: requiredIntLike("Player TYPE must be set", "Incorrect player TYPE")
+          }),
+          { error: "Incorrect number of players" }
+     ).min(1, "Incorrect number of players").max(4, "Incorrect number of players"),
+     start: hhmm("Invalid format"),
+     end: hhmm("Invalid format"),
+     //nullish, not optional: the client sends note: null when the field is blank
+     note: z.string("Invalid note").trim().nullish()
+})
 
-], authGuard, (req, res, next) => {
-
-     const errors = validationResult(req);
-
-     if (!errors.isEmpty()) {
-          log(appLogLevels.ERROR, "Add booking validation error: " + JSON.stringify(errors.array()));
-          return next(new RESTError(422, { fielderrors: errors.array({ onlyFirstError: true }) }));
-     }
+router.post('/', authGuard, validate(
+     { body: newBookingBody },
+     { logPrefix: "Add booking validation error" }
+), (req, res, next) => {
 
      matchcontroller.addBooking(req)
           .then(() => {
@@ -180,7 +173,7 @@ router.get('/:id', authGuard, (req, res, next) => {
      // eslint-disable-next-line no-unused-vars
      (req, res, next) => {
           //Fiter out values that are needed by the front end
-          const filtered_booking = (({ start, end, permissions, booking_type_desc, date, court_id, court_name, bumpable, notes, id, etag, players, utc_start, utc_end, utc_req_time, type }) => {
+          const filtered_booking = (({ start, end, permissions, booking_type_desc, booking_type_lbl, calendar_style, member_rebookable, same_day_only, min_participant, date, court_id, court_name, bumpable, notes, id, etag, players, utc_start, utc_end, utc_req_time, type }) => {
                return {
                     'start': start,
                     'end': end,
@@ -190,6 +183,11 @@ router.get('/:id', authGuard, (req, res, next) => {
                     'permissions': Array.from(permissions),
                     'type': type,
                     'booking_type_desc': booking_type_desc,
+                    'booking_type_lbl': booking_type_lbl,
+                    'calendar_style': calendar_style,
+                    'member_rebookable': member_rebookable,
+                    'same_day_only': same_day_only,
+                    'min_participant': min_participant,
                     'date': date,
                     'court': court_id,
                     'court_name': court_name,

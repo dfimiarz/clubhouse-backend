@@ -67,6 +67,11 @@ async function getBookingsForDate(date) {
                                 updated,
                                 notes,
                                 at.desc AS booking_type_desc,
+                                at.lbl AS booking_type_lbl,
+                                at.calendar_style AS calendar_style,
+                                at.member_rebookable AS member_rebookable,
+                                at.same_day_only AS same_day_only,
+                                at.min_participant AS min_participant,
                                 at.group AS group_id,
                                 ag.utility_factor AS utility
                             FROM
@@ -136,6 +141,11 @@ async function getBookingsForDate(date) {
         created: element.created,
         players: [],
         booking_type_desc: element.booking_type_desc,
+        booking_type_lbl: element.booking_type_lbl,
+        calendar_style: element.calendar_style,
+        member_rebookable: element.member_rebookable,
+        same_day_only: element.same_day_only,
+        min_participant: element.min_participant,
         group_id: element.group_id,
         utility: element.utility,
       });
@@ -227,6 +237,60 @@ async function addBooking(request) {
         )
       ) {
         throw new RESTError(422, "Person(s) not found");
+      }
+
+      // Type must be enabled for this club; effective min (club override or global)
+      const activity_type_q = `SELECT at.id,
+                                      COALESCE(ac.min_participant, at.min_participant) AS min_participant
+                               FROM activity_type at
+                               JOIN activity_club ac ON ac.activity_type_id = at.id
+                               WHERE at.id = ?
+                                 AND ac.club_id = ?
+                               LOCK IN SHARE MODE`;
+      const activity_type_result = await sqlconnector.runQuery(
+        connection,
+        activity_type_q,
+        [request.body.type, CLUB_ID]
+      );
+
+      if (
+        !(
+          Array.isArray(activity_type_result) &&
+          activity_type_result.length === 1
+        )
+      ) {
+        throw new RESTError(422, "Invalid booking type");
+      }
+
+      const min_participant = activity_type_result[0].min_participant ?? 1;
+      if (players.length < min_participant) {
+        throw new RESTError(
+          422,
+          `Activity requires at least ${min_participant} participant${min_participant === 1 ? "" : "s"}`
+        );
+      }
+
+      // Court must belong to this club and support the activity type
+      const court_support_q = `SELECT 1
+                               FROM activity_supported s
+                               JOIN court c ON c.id = s.court
+                               WHERE s.court = ?
+                                 AND s.activity_type = ?
+                                 AND c.club = ?
+                               LOCK IN SHARE MODE`;
+      const court_support_result = await sqlconnector.runQuery(
+        connection,
+        court_support_q,
+        [request.body.court, request.body.type, CLUB_ID]
+      );
+
+      if (
+        !(
+          Array.isArray(court_support_result) &&
+          court_support_result.length === 1
+        )
+      ) {
+        throw new RESTError(422, "Court does not support this activity");
       }
 
       const initValues = {
@@ -373,7 +437,7 @@ async function getOverlappingBookings(court, date, start, end) {
         };
       });
     });
-  } catch (err) {
+  } catch {
     throw new RESTError(500, "Error querying database");
   }
 }
@@ -440,7 +504,7 @@ async function getCourtAvailability(date, start, end) {
 
       return Array.from(availability_map.values());
     });
-  } catch (err) {
+  } catch {
     throw new RESTError(500, "Error querying database");
   }
 }

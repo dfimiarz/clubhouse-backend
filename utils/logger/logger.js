@@ -111,7 +111,7 @@ function localLog(level, message, meta = null) {
     ? level
     : appLogLevels.DEFAULT;
 
-  localLogger.log(level, message, meta);
+  localLogger.log(loglevel, message, meta);
 }
 
 module.exports = {

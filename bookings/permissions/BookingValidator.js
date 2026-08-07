@@ -19,6 +19,10 @@ active,
 type,
 booking_type_desc,
 booking_type_lbl,
+calendar_style,
+member_rebookable,
+same_day_only,
+min_participant,
 bumpable,
 created,
 updated,
@@ -39,8 +43,6 @@ player_type_id,
 
 */
 
-const MATCH_TYPE = 1000;
-
 const MIN_NEW_BOOKING_DURATION = 5 * 60;
 const FRESH_BOOKING_THRESHOLD_SEC = 5 * 60;
 
@@ -56,17 +58,17 @@ function checkCourtSchedule({schedule_id}){
     return schedule_id == null ? "Booking time invalid" : null; 
 }
 
-function checkMatchBookingDate({ loc_req_date, numeric_date, type }){
-
-        //console.log(loc_req_date,numeric_date)
-
-        if( type === MATCH_TYPE ){
-            return loc_req_date !== numeric_date ? "Matches must be booked for today": null;
-        }
-        else{
-            return null;
-        }
-
+/**
+ * When activity_type.same_day_only is set, booking date must be club-local today.
+ * Uses Abstract Equality so 1 / true both enable the rule.
+ */
+function checkSameDayOnlyBooking({ loc_req_date, numeric_date, same_day_only }) {
+    if (same_day_only == null || same_day_only == 0) {
+        return null;
+    }
+    return loc_req_date !== numeric_date
+        ? "This activity must be booked for today"
+        : null;
 }
 
 function checkStartAndEndTime({utc_start,utc_end}){
@@ -135,7 +137,7 @@ function isNotFreshBooking({utc_start,utc_req_time}){
 }
 
 const validators = {
-                     "create" : [ checkCourtSchedule, checkMatchBookingDate, checkStartAndEndTime, checkBookingDuration ],
+                     "create" : [ checkCourtSchedule, checkSameDayOnlyBooking, checkStartAndEndTime, checkBookingDuration ],
                      "cancel" : [ isActive, checkCancelTimeframe],
                      "end": [ isActive, isOngoing, isNotFreshBooking],
                      "move": [ isActive, checkBookingNotEnded ],

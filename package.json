@@ -9,6 +9,7 @@
     "start": "node server.js",
     "watch": "node --watch server.js",
     "cache:clear": "node scripts/clearcache.js",
+    "lint": "eslint .",
     "test": "mocha --exit --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
   },
   "dependencies": {
@@ -23,7 +24,6 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.1",
-    "express-validator": "^7.3.2",
     "firebase-admin": "^14.2.0",
     "http-errors": "^2.0.1",
     "ioredis": "^5.11.1",
@@ -32,12 +32,16 @@
     "pusher": "^5.3.4",
     "svg-captcha": "^1.4.0",
     "uuid": "^13.0.0",
-    "winston": "^3.19.0"
+    "validator": "^13.15.35",
+    "winston": "^3.19.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/chai": "^5.2.3",
     "chai": "^6.2.2",
     "eslint": "^10.8.0",
+    "globals": "^17.8.0",
     "mocha": "^11.7.6",
     "supertest": "^7.2.2"
   }

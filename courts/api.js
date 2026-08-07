@@ -1,12 +1,10 @@
 const express = require('express')
 const bodyParser = require('body-parser')
-const { body, validationResult } = require('express-validator')
 const courtcontroller = require('./controller')
 const {authGuard} = require('../middleware/clientauth')
 
 const router = express.Router();
 
-urlEncodedParse = bodyParser.urlencoded({ extended: false })
 router.use(bodyParser.json())
 
 /**
