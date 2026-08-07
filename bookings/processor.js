@@ -223,6 +223,35 @@ async function changeCourt(id, cmd) {
             throw new RESTError(422, "Court has not changed");
         }
 
+        // Court must belong to this club and support the booking's activity type
+        // (same rule as create booking; checked before mutating the original session)
+        const court_support_q = `SELECT 1
+                                 FROM activity_supported s
+                                 JOIN court c ON c.id = s.court
+                                 WHERE s.court = ?
+                                   AND s.activity_type = ?
+                                   AND c.club = ?
+                                 LOCK IN SHARE MODE`;
+        const court_support_result = await sqlconnector.runQuery(
+            connection,
+            court_support_q,
+            [new_court, booking.type, CLUB_ID]
+        );
+
+        if (
+            !(
+                Array.isArray(court_support_result) &&
+                court_support_result.length === 1
+            )
+        ) {
+            log(appLogLevels.WARNING, "Unable to change court. Court does not support activity: " + JSON.stringify({
+                booking_id: booking.id,
+                court: new_court,
+                activity_type: booking.type,
+            }));
+            throw new RESTError(422, "Court does not support this activity");
+        }
+
         let initValues;
 
         if (booking.utc_start > booking.utc_req_time) {
