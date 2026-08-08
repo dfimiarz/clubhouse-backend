@@ -2,6 +2,7 @@ const sqlconnector = require('../db/SqlConnector');
 const RESTError = require('./../utils/RESTError');
 const { storeJSON, getJSON } = require('./../db/RedisConnector');
 const { log, appLogLevels } = require('./../utils/logger/logger');
+const { resolveSettings } = require('./settings');
 
 const CLUB_ID = process.env.CLUB_ID;
 
@@ -74,6 +75,15 @@ async function getClubInfo() {
                         JOIN role_type ON role.type = role_type.id
                         ORDER BY role.id`;
 
+    //Get per-club setting overrides; defaults come from the registry in ./settings
+    const settings_query = `SELECT
+                            setting_key,
+                            setting_value
+                        FROM
+                            club_setting
+                        WHERE
+                            club = ?`;
+
     try {
         const result = await sqlconnector.withConnection(async (connection) => {
             const club_results = await sqlconnector.runExecute(connection, club_query, [CLUB_ID]);
@@ -144,6 +154,11 @@ async function getClubInfo() {
                     public_label: role["public_label"]
                 }
             });
+
+            const settings_results = await sqlconnector.runExecute(connection, settings_query, [CLUB_ID]);
+
+            //Always a complete object: unset keys fall back to registry defaults
+            result.settings = resolveSettings(settings_results, { publicOnly: true });
 
             return result;
         });
