@@ -17,14 +17,40 @@ router.use(express.json())
  */
 router.get('/', authGuard, validate(
      // Keep as YYYY-MM-DD string (do not coerce to Date) to avoid timezone day-shift in SQL
-     { query: z.object({ date: isoDate('Invalid date') }) },
-     { payload: () => "Invalid date parameter", logPrefix: "Date error" }
+     {
+          query: z.object({
+               date: isoDate('Invalid date'),
+               rebookable: z.literal('1', 'Invalid rebookable').optional(),
+               ended_min_ago: intLike('Invalid ended_min_ago').pipe(z.number().min(0).max(120)).optional(),
+               ended_max_ago: intLike('Invalid ended_max_ago').pipe(z.number().min(1).max(120)).optional(),
+               // Cap list size: match booking allows ≤4 players; leave headroom for admin tools
+               person_ids: z.string()
+                    .regex(/^\d+(,\d+)*$/, 'Invalid person_ids')
+                    .refine((value) => value.split(',').length <= 20, {
+                         error: 'Too many person_ids',
+                    })
+                    .optional()
+          }).refine(
+               (query) => query.ended_min_ago === undefined
+                    || query.ended_max_ago === undefined
+                    || query.ended_min_ago < query.ended_max_ago,
+               { error: 'ended_min_ago must be less than ended_max_ago', path: ['ended_min_ago'] }
+          )
+     },
+     { payload: () => "Invalid query parameter", logPrefix: "Get bookings parameter error" }
 ),
      (req, res, next) => {
 
           const date = req.query.date ? req.query.date : null
 
-          matchcontroller.getBookingsForDate(date)
+          const filters = {
+               rebookable: req.query.rebookable === '1',
+               endedMinAgo: req.query.ended_min_ago ?? null,
+               endedMaxAgo: req.query.ended_max_ago ?? null,
+               personIds: req.query.person_ids ? req.query.person_ids.split(',').map(Number) : null
+          }
+
+          matchcontroller.getBookingsForDate(date, filters)
                .then((bookings) => {
                     res.json(bookings)
                })

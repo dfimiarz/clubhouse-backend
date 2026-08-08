@@ -15,17 +15,95 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 
 const CLUB_ID = process.env.CLUB_ID;
 
+// Club-local wall-clock end of an activity vs club-local "now".
+// date+end are stored as club-local; CONVERT_TZ shifts server NOW into the club zone.
+const ACTIVITY_END_DT = "TIMESTAMP(activity.date, activity.end)";
+const CLUB_NOW_DT =
+  "CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone)";
+
+/**
+ * Builds optional list-filter SQL for getBookingsForDate.
+ * Exported for unit tests.
+ *
+ * @param {string} date - Requested date (YYYY-MM-DD).
+ * @param {Object} [filters]
+ * @returns {{ datePredicate: string, dateParams: Array, filterPredicates: string[], filterParams: Array }}
+ */
+function buildBookingListFilters(date, filters = {}) {
+  const filterPredicates = [];
+  const filterParams = [];
+  const hasEndedWindow =
+    filters.endedMinAgo != null || filters.endedMaxAgo != null;
+
+  if (filters.rebookable) {
+    filterPredicates.push("AND at.member_rebookable = 1");
+  }
+
+  if (filters.endedMaxAgo != null) {
+    // end <= now also excludes sessions still in progress
+    filterPredicates.push(
+      `AND ${ACTIVITY_END_DT} <= ${CLUB_NOW_DT}
+       AND ${ACTIVITY_END_DT} >= ${CLUB_NOW_DT} - INTERVAL ? MINUTE`
+    );
+    filterParams.push(filters.endedMaxAgo);
+  }
+
+  if (filters.endedMinAgo != null) {
+    filterPredicates.push(
+      `AND ${ACTIVITY_END_DT} <= ${CLUB_NOW_DT} - INTERVAL ? MINUTE`
+    );
+    filterParams.push(filters.endedMinAgo);
+  }
+
+  if (filters.personIds && filters.personIds.length > 0) {
+    filterPredicates.push(
+      "AND EXISTS (SELECT 1 FROM participant fp WHERE fp.activity = activity.id AND fp.person IN ( ? ))"
+    );
+    filterParams.push(filters.personIds);
+  }
+
+  // Ended windows may span midnight; include the previous calendar day so
+  // late-evening sessions remain visible shortly after 00:00.
+  if (hasEndedWindow) {
+    return {
+      datePredicate: "date BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND ?",
+      dateParams: [date, date],
+      filterPredicates,
+      filterParams,
+    };
+  }
+
+  return {
+    datePredicate: "date = ?",
+    dateParams: [date],
+    filterPredicates,
+    filterParams,
+  };
+}
+
 /**
  * Retrieves bookings for a specific date.
  *
  * @param {string} date - The date (YYYY-MM-DD) for which to retrieve bookings.
+ * @param {Object} [filters] - Optional row filters; absent filters leave the query unchanged.
+ * @param {boolean} [filters.rebookable] - Only bookings whose activity type has member_rebookable = 1.
+ * @param {number} [filters.endedMinAgo] - Only bookings that ended at least N minutes ago (club time).
+ * @param {number} [filters.endedMaxAgo] - Only bookings that ended no more than N minutes ago (club time).
+ * @param {number[]} [filters.personIds] - Only bookings with at least one of these participants.
  * @returns {Promise<Array>} - A promise that resolves to an array of bookings.
  * @throws {Error} - If there is an error retrieving the bookings.
  */
-async function getBookingsForDate(date) {
+async function getBookingsForDate(date, filters = {}) {
   const OPCODE = "GET_BOOKINGS_FOR_DATE";
 
   if (date === null) return [];
+
+  const {
+    datePredicate,
+    dateParams,
+    filterPredicates: filter_predicates,
+    filterParams: filter_params,
+  } = buildBookingListFilters(date, filters);
 
   // Membership date predicates belong on the LEFT JOIN so participants
   // without a membership covering `date` still appear (role fields null).
@@ -85,9 +163,10 @@ async function getBookingsForDate(date) {
                                     JOIN
                                 club cl ON c.club = cl.id
                             WHERE
-                                date = ?
+                                ${datePredicate}
                                 AND active = 1
                                 AND cl.id = ?
+                                ${filter_predicates.join("\n                                ")}
                             FOR SHARE`;
 
   try {
@@ -98,7 +177,7 @@ async function getBookingsForDate(date) {
         const bookings_array = await sqlconnector.runQuery(
           connection,
           activity_query,
-          [date, CLUB_ID]
+          [...dateParams, CLUB_ID, ...filter_params]
         );
 
         let players_array = [];
@@ -516,4 +595,5 @@ module.exports = {
   getBookingsForDate,
   getOverlappingBookings,
   getCourtAvailability,
+  buildBookingListFilters,
 };
