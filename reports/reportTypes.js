@@ -1,4 +1,4 @@
-const { playerStatsProcessor, memberActivitiesProcessor, guestPassesProcessor  } = require('./reportProcessors');
+const { playerStatsProcessor, memberActivitiesProcessor, guestPassesProcessor, rebookingProcessor, rebookingPlayersProcessor } = require('./reportProcessors');
 
 /**
  * Object containing list of report processors
@@ -7,7 +7,9 @@ const { playerStatsProcessor, memberActivitiesProcessor, guestPassesProcessor  }
 const report_processors = {
     playerstats : playerStatsProcessor,
     memberactivities: memberActivitiesProcessor,
-    guestpasses: guestPassesProcessor
+    guestpasses: guestPassesProcessor,
+    rebooking: rebookingProcessor,
+    rebookingplayers: rebookingPlayersProcessor
 }
 
 //Function returns processor names

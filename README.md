@@ -43,3 +43,173 @@ to take effect.
 | `rebooking_prompt_enabled` | boolean | `false` | Show the back-to-back rebooking prompt in the match booking flow. Opt-in: set to `'1'` per club |
 
 There is no write endpoint or admin UI yet — values are changed with SQL.
+
+## Product analytics
+
+Feature usage is recorded as events in the `app_event` table and read back
+through the normal reports API. The shape mirrors club settings: the table
+holds rows, the code holds the schema.
+
+- **`analytics/eventTypes.js`** — the registry. Declares every event name and a
+  strict `zod` schema for its `props`. An event name or a prop the registry
+  does not know is a `400`, so a typo in a call site fails in development
+  instead of becoming data nobody can query.
+- **`app_event`** (table) — `club`, `name`, `created`, `actor`, `flow_id`,
+  optional `client_ts` (ms since epoch from the client at enqueue), and a
+  `props` JSON column. Everything specific to an event lives in `props`,
+  including the `person_ids` it involves.
+
+Adding an event costs one registry entry, one client call site, and no
+migration.
+
+### Recording an event
+
+The client posts them fire-and-forget, either one at a time or batched:
+
+```
+POST /events
+{ "name": "rebooking_offered",
+  "flow_id": "m4x1k2-8fa0c3b1",
+  "client_ts": 1710000000123,
+  "props": { "person_ids": [12, 44], "minutes_ago": 7, "start_min": 615 } }
+
+POST /events/batch
+{ "events": [
+    { "name": "booking_started", "flow_id": "m4x1k2-8fa0c3b1",
+      "client_ts": 1710000000100,
+      "props": { "prefilled_player_count": 0 } },
+    { "name": "rebooking_offered", "flow_id": "m4x1k2-8fa0c3b1",
+      "client_ts": 1710000000450,
+      "props": { "person_ids": [12, 44], "minutes_ago": 7, "start_min": 615 } }
+  ] }
+```
+
+Both routes answer `202` as soon as the body validates and store afterwards. A
+storage failure is logged and never reaches the client — these fire in the
+middle of a booking, so analytics must not be able to break one. `club`,
+`actor` and `created` are filled in server-side and are not accepted from the
+client. Optional `client_ts` is the client's `Date.now()` when the event was
+enqueued (positive integer ms); it is stored as-is for within-batch ordering
+and is not treated as authoritative time.
+
+`POST /events/batch` accepts 1–50 events. It counts as one rate-limit unit and
+persists with a multi-row insert. Batched rows share nearly the same server
+`created` time; use `client_ts` for gaps between steps. Funnel joins still use
+`flow_id`.
+
+Events in a batch are validated one at a time and the valid ones are stored
+even if others are not — a client buffers unrelated events together, so failing
+the whole batch would let one broken call site delete a whole booking funnel's
+worth of good data. The `202` reports what happened, and anything dropped is
+also logged server-side:
+
+```
+{ "status": "ok", "accepted": 1,
+  "rejected": [ { "index": 1, "name": "start_time_option_selected",
+                  "fielderrors": [ { "param": "props.start_min",
+                                     "msg": "Invalid input: expected number, received null" } ] } ] }
+```
+
+An empty batch, or one over 50 events, is still a `400` — that is a broken
+client contract rather than bad data. `POST /events` is unchanged: with a
+single event there is nothing to salvage, so an invalid one is a `400`.
+
+
+`flow_id` is an opaque client-generated string that groups the events of one
+user flow, which is what makes funnel questions answerable — "accepted but
+never booked" is a join on `flow_id`, not something the per-event counts can
+tell you. For match booking the client assigns one `flow_id` when the booking
+screen opens and attaches it to every event in that attempt (players, court,
+rebooking, submit), not only rebooking.
+
+### Why players live in `props`
+
+There is deliberately no foreign key from an event to `person`. Events outlive
+the people in them: a cascade would silently delete history and change past
+rates when a member is removed. The cost is that per-player reports expand the
+array with `JSON_TABLE` and cannot name deleted members, so those rows can sum
+to less than the daily totals.
+
+At current volume no index on `person_ids` is needed. When it is, it is one
+`ALTER` and no table change:
+
+```sql
+ALTER TABLE app_event
+  ADD INDEX app_event_person_ids_idx
+    ((CAST(props->'$.person_ids' AS UNSIGNED ARRAY)));
+```
+
+### Current events
+
+Match booking funnel (one `flow_id` per booking screen session):
+
+| Name | Emitted when | Props |
+| --- | --- | --- |
+| `booking_started` | booking screen opens | `prefilled_player_count` |
+| `booking_player_set` | player dialog Save (add or edit) | `person_id`, `player_type`, `slot_index` |
+| `booking_player_removed` | a player slot is removed | `person_id`, `slot_index` |
+| `booking_players_cleared` | Clear all with players present | `person_ids` |
+| `booking_activity_selected` | user changes activity | `activity_type` |
+| `booking_court_selected` | user picks a court | `court_id` |
+| `booking_duration_selected` | duration dialog OK | `duration_min`, `preferred_min` |
+| `booking_bumpable_set` | user toggles bumpable | `bumpable` |
+| `booking_step_continued` | continue past validation | `from_step`, `to_step` |
+| `booking_completed` | booking created successfully | `person_ids`, `player_types`, `court_id`, `activity_type`, `start_min`, `duration_min`, `bumpable` |
+
+Rebooking and start-time (same booking `flow_id` when emitted from match booking):
+
+| Name | Emitted when | Props |
+| --- | --- | --- |
+| `rebooking_offered` | the back-to-back dialog is shown | `person_ids`, `minutes_ago`, `start_min` |
+| `rebooking_accepted` | confirmed with the previous session's end time | `person_ids`, `start_min` |
+| `rebooking_declined` | confirmed with "starting now" | `person_ids`, `start_min` |
+| `rebooking_booked` | a booking followed an accepted suggestion | `person_ids`, `start_min`, `offered_start_min`, `kept_offer` |
+| `start_time_option_selected` | a start-time menu pick is applied | `option` (`rebooking` \| `now` \| `plus5` \| `other`), `start_min` |
+
+Only committed user actions are recorded: auto-seeded start/duration, rule-driven
+bumpable defaults, route-prefilled players, note text, and failed validation
+attempts are not.
+
+### Reading the numbers
+
+Two report processors, behind the usual admin/manager guard:
+
+```
+GET /reports/rebooking?from=2026-08-01&to=2026-08-08
+GET /reports/rebookingplayers?from=2026-08-01&to=2026-08-08
+```
+
+`rebooking` returns one row per day — `offered`, `accepted`, `declined`,
+`booked`, `booked_kept`, `booked_changed` and `accept_rate`, with empty days
+filled in. `rebookingplayers` returns offers, accepts and declines per member,
+busiest first. Days are bucketed in the club's time zone; `app_event.created`
+is UTC.
+
+Accepting the suggestion is not the end of the story: the start time stays
+editable afterwards, so an accepted suggestion can still be booked at a
+different time. `rebooking_booked` therefore fires for every booking that
+followed an acceptance and carries `kept_offer`, which splits the three
+outcomes:
+
+| Outcome | How to read it |
+| --- | --- |
+| kept | `booked_kept` — booked at the suggested time |
+| edited | `booked_changed` — accepted, then the start time was changed |
+| abandoned | `accepted` minus `booked` |
+
+Derive "abandoned" over the whole range rather than per day: a flow that starts
+before midnight and finishes after it puts its acceptance and its booking on
+different days. The gap between `start_min` and `offered_start_min` on an
+edited booking shows how far off the suggestion was.
+
+"Abandoned" is not purely a user behaviour. A suggestion whose session ages out
+of the rebooking window mid-flow is withdrawn by the client, which resets the
+start time and cancels the acceptance, so it lands here too — the user never
+declined and never booked at the suggested time. Reading this figure as "people
+who changed their mind" overstates it when the club has long booking flows.
+
+The same midnight split affects `accept_rate`, which is computed per day: a
+dialog shown at 23:58 and answered at 00:01 puts the offer on one day and the
+acceptance on the next, so a single day's rate can read above 1.0 (and the day
+before it artificially low). Sum `accepted` and `offered` across the range
+before dividing when the number needs to be exact.

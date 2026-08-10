@@ -27,9 +27,18 @@ let publicReadLimiter = rateLimit({
     message: "Too many public schedule requests. Please try again later."
 })
 
+let eventLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: "Too many analytics events. Please try again later."
+})
+
 module.exports = {
     apilimiter: APILimiter,
     captchalimiter: captchaLimiter,
     guestregistrationlimiter: guestRegistrationLimiter,
-    publicreadlimiter: publicReadLimiter
+    publicreadlimiter: publicReadLimiter,
+    eventlimiter: eventLimiter
 }

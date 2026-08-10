@@ -227,9 +227,163 @@ const guestPassesProcessor = async function (name, from, to) {
 
 
 
+
+/**
+ * Rebooking prompt funnel, one row per day in the range.
+ *
+ * Counts events rather than bookings: `offered` is the number of dialogs shown,
+ * so it is the correct denominator for the accept rate. Days with no activity
+ * are filled with zeroes so the series is continuous for charting.
+ *
+ * `booked` counts bookings that followed an accepted suggestion, split into
+ * those that kept the suggested time and those the user edited first. An
+ * acceptance with no booking at all was abandoned — derive that across the
+ * whole range rather than per day, since a flow can cross midnight.
+ *
+ * @param {String} name Processor name
+ * @param {String} from Date in ISO format, club local
+ * @param {String} to Date in ISO format, club local
+ * @returns {Array<Object>} date, offered, accepted, declined, booked, booked_kept, booked_changed, accept_rate
+ */
+const rebookingProcessor = async function (name, from, to) {
+
+    // app_event.created is UTC (the pool runs timezone "Z"), while from/to are
+    // club-local dates, so days are bucketed in the club's zone the same way
+    // the guest pass report converts its timestamps.
+    const rebooking_q =
+        `SELECT
+            DATE_FORMAT(CONVERT_TZ(e.created, 'UTC', c.time_zone), GET_FORMAT(DATE, 'ISO')) AS date,
+            SUM(e.name = 'rebooking_offered') AS offered,
+            SUM(e.name = 'rebooking_accepted') AS accepted,
+            SUM(e.name = 'rebooking_declined') AS declined,
+            SUM(e.name = 'rebooking_booked') AS booked,
+            SUM(e.name = 'rebooking_booked' AND e.props->'$.kept_offer' = TRUE) AS booked_kept
+        FROM
+            app_event e
+                JOIN
+            club c ON c.id = e.club
+        WHERE
+            e.club = ?
+            AND e.name IN ('rebooking_offered', 'rebooking_accepted', 'rebooking_declined', 'rebooking_booked')
+            AND DATE(CONVERT_TZ(e.created, 'UTC', c.time_zone)) BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date`;
+
+    try {
+        const result = await sqlconnector.withConnection(async (connection) => {
+            return sqlconnector.runExecute(connection, rebooking_q, [CLUB_ID, from, to]);
+        });
+
+        if (!Array.isArray(result)) {
+            throw new Error("Unable to retrieve report data");
+        }
+
+        const resultMap = getDateMap(from, to, { offered: 0, accepted: 0, declined: 0, booked: 0, booked_kept: 0 });
+
+        result.forEach(row => {
+            resultMap.set(row.date, {
+                offered: Number(row.offered),
+                accepted: Number(row.accepted),
+                declined: Number(row.declined),
+                booked: Number(row.booked),
+                booked_kept: Number(row.booked_kept)
+            });
+        });
+
+        return Array.from(resultMap, ([date, value]) => ({
+            date: date,
+            offered: value.offered,
+            accepted: value.accepted,
+            declined: value.declined,
+            booked: value.booked,
+            booked_kept: value.booked_kept,
+            // Accepted the suggestion, then edited the start time before booking.
+            booked_changed: value.booked - value.booked_kept,
+            // Null rather than 0 on a day with no offers: nothing was asked, so
+            // there is no rate to report and a chart should show a gap.
+            accept_rate: value.offered === 0 ? null : Math.round((value.accepted / value.offered) * 100) / 100
+        }));
+
+    } catch (err) {
+        log(appLogLevels.ERROR, `Error generating report '${name}': ${err.message}`);
+        throw new RESTError(500, "Request failed");
+    }
+
+}
+
+/**
+ * Rebooking prompt outcomes per player, busiest first.
+ *
+ * The players an event involved live in its props as a JSON array, so they are
+ * expanded with JSON_TABLE before joining to person. There is no foreign key,
+ * which is deliberate: events outlive the people in them. The join therefore
+ * drops ids for deleted members, and these rows can sum to less than the daily
+ * totals from the 'rebooking' report.
+ *
+ * @param {String} name Processor name
+ * @param {String} from Date in ISO format, club local
+ * @param {String} to Date in ISO format, club local
+ * @returns {Array<Object>} person, player, offers, accepts, declines, accept_rate
+ */
+const rebookingPlayersProcessor = async function (name, from, to) {
+
+    const players_q =
+        `SELECT
+            p.id AS person,
+            CONCAT(p.firstname, ' ', p.lastname) AS player,
+            SUM(e.name = 'rebooking_offered') AS offers,
+            SUM(e.name = 'rebooking_accepted') AS accepts,
+            SUM(e.name = 'rebooking_declined') AS declines
+        FROM
+            app_event e
+                JOIN
+            club c ON c.id = e.club
+                JOIN
+            JSON_TABLE(e.props, '$.person_ids[*]' COLUMNS (person_id INT PATH '$')) jt ON TRUE
+                JOIN
+            person p ON p.id = jt.person_id AND p.club = e.club
+        WHERE
+            e.club = ?
+            AND e.name IN ('rebooking_offered', 'rebooking_accepted', 'rebooking_declined')
+            AND DATE(CONVERT_TZ(e.created, 'UTC', c.time_zone)) BETWEEN ? AND ?
+        GROUP BY p.id
+        ORDER BY offers DESC, player`;
+
+    try {
+        const result = await sqlconnector.withConnection(async (connection) => {
+            return sqlconnector.runExecute(connection, players_q, [CLUB_ID, from, to]);
+        });
+
+        if (!Array.isArray(result)) {
+            throw new Error("Unable to retrieve report data");
+        }
+
+        return result.map(row => {
+            const offers = Number(row.offers);
+
+            return {
+                person: row.person,
+                player: row.player,
+                offers: offers,
+                accepts: Number(row.accepts),
+                declines: Number(row.declines),
+                accept_rate: offers === 0 ? null : Math.round((Number(row.accepts) / offers) * 100) / 100
+            };
+        });
+
+    } catch (err) {
+        log(appLogLevels.ERROR, `Error generating report '${name}': ${err.message}`);
+        throw new RESTError(500, "Request failed");
+    }
+
+}
+
+
 module.exports = {
     playerStatsProcessor,
     memberActivitiesProcessor,
     guestPassesProcessor,
+    rebookingProcessor,
+    rebookingPlayersProcessor,
 
 }
