@@ -14,6 +14,10 @@ const { transactionType } = require("../utils/dbutils");
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const clubcontroller = require("../club/controller");
 const { suggestPlayerTypes, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
+const {
+  assertNoConcurrentMemberBookings,
+  lockRosterIfNeeded,
+} = require("./playerOverlap");
 
 const CLUB_ID = process.env.CLUB_ID;
 
@@ -298,6 +302,8 @@ async function addBooking(request) {
   }
   //END
 
+  // No person row lock here. Member writes take FOR UPDATE later;
+  // SHARE now would deadlock on that upgrade.
   const person_check_q = `SELECT p.id,m.role 
                           FROM clubhouse.person p 
                           JOIN club c on c.id = p.club
@@ -305,11 +311,11 @@ async function addBooking(request) {
                           WHERE p.id IN ? 
                           AND p.club = ?
                           AND ? >= m.valid_from 
-                          AND ? < m.valid_until 
-                          LOCK IN SHARE MODE`;
+                          AND ? < m.valid_until`;
 
   try {
     await sqlconnector.withTransaction(async (connection) => {
+
       //START Check players
       const persons_result = await sqlconnector.runQuery(
         connection,
@@ -430,6 +436,9 @@ async function addBooking(request) {
         throw new RESTError(422, "Create permission denied: " + errors[0]);
       }
 
+      // People before any activity FOR UPDATE (same order as CHANGE_TIME / CHANGE_COURT)
+      await lockRosterIfNeeded(connection, booking);
+
       //START Check for overlapping bookings
       const overlapping_bookings = await checkOverlap(
         connection,
@@ -452,6 +461,8 @@ async function addBooking(request) {
         throw new RESTError(422, "Booking overlap found.");
       }
       //END
+
+      await assertNoConcurrentMemberBookings(connection, booking);
 
       await insertBooking(connection, booking);
 

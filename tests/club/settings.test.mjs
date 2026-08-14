@@ -116,7 +116,10 @@ describe("club settings registry", function () {
     });
 
     it("resolves to the prompt being disabled with no overrides", function () {
-      expect(resolveSettings([])).to.deep.equal({ rebooking_prompt_enabled: false });
+      expect(resolveSettings([])).to.deep.equal({
+        rebooking_prompt_enabled: false,
+        prevent_concurrent_member_bookings: false,
+      });
     });
 
     it("enables the prompt for a club that opted in", function () {
@@ -124,6 +127,21 @@ describe("club settings registry", function () {
         { setting_key: "rebooking_prompt_enabled", setting_value: "1" },
       ]);
       expect(resolved.rebooking_prompt_enabled).to.equal(true);
+    });
+
+    it("declares prevent_concurrent_member_bookings as a public boolean defaulting to off", function () {
+      expect(SETTINGS.prevent_concurrent_member_bookings).to.include({
+        type: "boolean",
+        default: false,
+        public: true,
+      });
+    });
+
+    it("enables concurrent-member blocking for a club that opted in", function () {
+      const resolved = resolveSettings([
+        { setting_key: "prevent_concurrent_member_bookings", setting_value: "1" },
+      ]);
+      expect(resolved.prevent_concurrent_member_bookings).to.equal(true);
     });
   });
 });

@@ -2,12 +2,53 @@ const sqlconnector = require('../db/SqlConnector')
 const RESTError = require('./../utils/RESTError');
 const { checkPermission } = require('./permissions/BookingPermissions');
 const { getBooking, insertBooking, getNewBooking, checkOverlap } = require('./BookingUtils');
+const { assertNoConcurrentMemberBookings, lockRosterIfNeeded } = require('./playerOverlap');
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { transactionType } = require("../utils/dbutils");
 
 const CLUB_ID = process.env.CLUB_ID;
 
+/**
+ * Snapshot a booking, take the person mutex when the concurrent-member rule
+ * applies, then re-read the row FOR UPDATE. People before the activity so add
+ * and move cannot deadlock.
+ */
+async function lockAndReloadForMove(connection, snapshot, etag) {
+    await lockRosterIfNeeded(connection, snapshot);
 
+    const booking = await getBooking(connection, snapshot.id, transactionType.WRITE_TRANSACTION);
+
+    if (!booking) {
+        throw new RESTError(422, "Unable to read booknig data");
+    }
+
+    if (booking.club_id != CLUB_ID) {
+        throw new RESTError(422, "Booking does not belong to this club");
+    }
+
+    if (booking.etag != etag) {
+        throw new RESTError(422, "Booking has changed. Please refresh");
+    }
+
+    return booking;
+}
+
+function rejectUnreadableBooking(booking, id, etag, failVerb) {
+    if (!booking) {
+        log(appLogLevels.ERROR, `Unable to ${failVerb}. Booking access error:  ` + JSON.stringify({ id: id, hash: etag }));
+        throw new RESTError(422, "Unable to read booknig data");
+    }
+
+    if (booking.club_id != CLUB_ID) {
+        log(appLogLevels.ERROR, `Booking ${id} does not belong to club ${CLUB_ID}`);
+        throw new RESTError(422, "Booking does not belong to this club");
+    }
+
+    if (booking.etag != etag) {
+        log(appLogLevels.ERROR, `Booking ${id} etag mismatch`);
+        throw new RESTError(422, "Booking has changed. Please refresh");
+    }
+}
 
 async function endSession(id, cmd) {
 
@@ -98,30 +139,18 @@ async function changeSessionTime(id, cmd) {
     const new_end = cmd.end
 
     return sqlconnector.withTransaction(async (connection) => {
-        const booking = await getBooking(connection, id, transactionType.WRITE_TRANSACTION);
-
-        if (!booking) {
-            log(appLogLevels.ERROR, "Unable to change time. Booking access error: " + JSON.stringify({ id: id, hash: cmd.hash }));
-            throw new RESTError(422, "Unable to read booknig data");
-        }
-
-        if (booking.club_id != CLUB_ID) {
-            log(appLogLevels.ERROR, `Booking ${id} does not belong to club ${CLUB_ID}`);
-            throw new RESTError(422, "Booking does not belong to this club");
-        }
-
-        if (booking.etag != etag) {
-            log(appLogLevels.ERROR, `Booking ${id} etag mismatch`);
-            throw new RESTError(422, "Booking has changed. Please refresh");
-        }
+        const snapshot = await getBooking(connection, id, transactionType.NO_TRANSACTION);
+        rejectUnreadableBooking(snapshot, id, etag, "change time");
 
         //Check permissions to move
-        const move_errors = checkPermission('move', booking);
+        const move_errors = checkPermission('move', snapshot);
 
         if (move_errors.length > 0) {
             log(appLogLevels.WARNING, "Unable to change time. Permission to move denied: " + JSON.stringify(move_errors));
             throw new RESTError(422, "Permission to move denied: " + move_errors[0]);
         }
+
+        const booking = await lockAndReloadForMove(connection, snapshot, etag);
 
         const remove_activity_q = `UPDATE activity SET active = 0 where id = ?`
 
@@ -164,6 +193,8 @@ async function changeSessionTime(id, cmd) {
         }
         //END
 
+        await assertNoConcurrentMemberBookings(connection, movedbooking);
+
         const insertid = await insertBooking(connection, movedbooking);
 
         const change_record = {
@@ -186,25 +217,11 @@ async function changeCourt(id, cmd) {
     const new_court = cmd.court;
 
     return sqlconnector.withTransaction(async (connection) => {
-        const booking = await getBooking(connection, id, transactionType.WRITE_TRANSACTION);
-
-        if (!booking) {
-            log(appLogLevels.ERROR, "Unable to change court. Booking access error: " + JSON.stringify({ id: id, hash: cmd.hash }));
-            throw new RESTError(422, "Unable to read booknig data");
-        }
-
-        if (booking.club_id != CLUB_ID) {
-            log(appLogLevels.ERROR, `Booking ${id} does not belong to club ${CLUB_ID}`);
-            throw new RESTError(422, "Booking does not belong to this club");
-        }
-
-        if (booking.etag != etag) {
-            log(appLogLevels.ERROR, `Booking ${id} etag mismatch`);
-            throw new RESTError(422, "Booking has changed. Please refresh");
-        }
+        const snapshot = await getBooking(connection, id, transactionType.NO_TRANSACTION);
+        rejectUnreadableBooking(snapshot, id, etag, "change court");
 
         //Check permissions to move
-        const move_errors = checkPermission('move', booking);
+        const move_errors = checkPermission('move', snapshot);
 
         if (move_errors.length > 0) {
             log(appLogLevels.WARNING, "Unable to change court. Permission to move denied: " + JSON.stringify(move_errors));
@@ -212,11 +229,11 @@ async function changeCourt(id, cmd) {
         }
 
         //Check if court is changing
-        if (booking.court_id === new_court) {
+        if (snapshot.court_id === new_court) {
 
             const change_record = {
-                booking_id: booking.id,
-                court_id: booking.court_id
+                booking_id: snapshot.id,
+                court_id: snapshot.court_id
             }
 
             log(appLogLevels.WARNING, "Court has not changed: " + JSON.stringify(change_record));
@@ -235,7 +252,7 @@ async function changeCourt(id, cmd) {
         const court_support_result = await sqlconnector.runQuery(
             connection,
             court_support_q,
-            [new_court, booking.type, CLUB_ID]
+            [new_court, snapshot.type, CLUB_ID]
         );
 
         if (
@@ -245,12 +262,14 @@ async function changeCourt(id, cmd) {
             )
         ) {
             log(appLogLevels.WARNING, "Unable to change court. Court does not support activity: " + JSON.stringify({
-                booking_id: booking.id,
+                booking_id: snapshot.id,
                 court: new_court,
-                activity_type: booking.type,
+                activity_type: snapshot.type,
             }));
             throw new RESTError(422, "Court does not support this activity");
         }
+
+        const booking = await lockAndReloadForMove(connection, snapshot, etag);
 
         let initValues;
 
@@ -317,6 +336,8 @@ async function changeCourt(id, cmd) {
             throw new RESTError(422, "Booking overlap found. Pick a different court.");
         }
         //END
+
+        await assertNoConcurrentMemberBookings(connection, movedbooking);
 
         const insertid = await insertBooking(connection, movedbooking);
 

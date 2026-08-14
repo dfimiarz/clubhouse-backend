@@ -41,6 +41,7 @@ to take effect.
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `rebooking_prompt_enabled` | boolean | `false` | Show the back-to-back rebooking prompt in the match booking flow. Opt-in: set to `'1'` per club |
+| `prevent_concurrent_member_bookings` | boolean | `false` | Reject a member activity (`activity_group = 1`) when any roster player already has an overlapping member session on another court. Club sessions are not checked. Seeded to `'1'` for existing clubs by migration `0012` |
 
 There is no write endpoint or admin UI yet — values are changed with SQL.
 

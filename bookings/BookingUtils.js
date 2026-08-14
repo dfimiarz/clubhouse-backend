@@ -24,6 +24,7 @@ const booking_q = `SELECT c.id AS court_id,
                         at.member_rebookable AS member_rebookable,
                         at.same_day_only AS same_day_only,
                         at.min_participant AS min_participant,
+                        at.group AS group_id,
                         a.bumpable,
                         a.created,
                         a.updated,
@@ -114,6 +115,36 @@ const overlap_check_q = `
     AND date = ?
     AND active = 1 FOR UPDATE`;
 
+// date, group, person ids, end, start — exclusive endpoints, any court
+const player_overlap_check_q = `
+    SELECT
+        a.id,
+        a.court,
+        c.name AS court_name,
+        a.start,
+        a.end,
+        p.person AS person_id,
+        person.firstname,
+        person.lastname
+    FROM
+        activity a
+            JOIN
+        activity_type at ON at.id = a.type
+            JOIN
+        court c ON c.id = a.court
+            JOIN
+        participant p ON p.activity = a.id
+            JOIN
+        person ON person.id = p.person
+    WHERE
+        a.date = ?
+        AND a.active = 1
+        AND at.group = ?
+        AND p.person IN ?
+        AND ? > a.start
+        AND ? < a.end
+    FOR UPDATE`;
+
 
 
 
@@ -167,6 +198,7 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
         member_rebookable: booking_result[0]['member_rebookable'],
         same_day_only: booking_result[0]['same_day_only'],
         min_participant: booking_result[0]['min_participant'],
+        group_id: booking_result[0]['group_id'],
         bumpable: booking_result[0]['bumpable'],
         created: booking_result[0]['created'],
         updated: booking_result[0]['updated'],
@@ -267,6 +299,7 @@ async function getNewBooking(connection, initValues) {
                                 at.calendar_style,
                                 at.member_rebookable,
                                 at.same_day_only,
+                                at.\`group\` AS group_id,
                                 COALESCE(ac.min_participant, at.min_participant) AS min_participant
                              FROM activity_type at
                              JOIN activity_club ac ON ac.activity_type_id = at.id
@@ -289,6 +322,7 @@ async function getNewBooking(connection, initValues) {
     booking.calendar_style = activity_type_result[0].calendar_style;
     booking.member_rebookable = activity_type_result[0].member_rebookable;
     booking.same_day_only = activity_type_result[0].same_day_only;
+    booking.group_id = activity_type_result[0].group_id;
     booking.min_participant = activity_type_result[0].min_participant;
 
     let bookingtime_result = await sqlconnector.runQuery(connection, booking_time_q, {
@@ -339,10 +373,37 @@ async function checkOverlap(connection, end, start, court_id, date) {
 
 }
 
+/**
+ * Active member-group bookings that share a roster person and overlap
+ * [start, end) on any court. Exclusive endpoints match checkOverlap.
+ *
+ * @param {*} connection
+ * @param {{ date: string, start: string, end: string, personIds: number[], groupId: number }} params
+ * @returns {Promise<Array<{ id: number, court: number, court_name: string, start: string, end: string, person_id: number, firstname: string, lastname: string }>>}
+ */
+async function checkPlayerOverlap(connection, { date, start, end, personIds, groupId }) {
+    if (!Array.isArray(personIds) || personIds.length === 0) {
+        return [];
+    }
+
+    const overlap_result = await sqlconnector.runQuery(
+        connection,
+        player_overlap_check_q,
+        [date, groupId, [personIds], end, start]
+    );
+
+    if (!Array.isArray(overlap_result)) {
+        throw new Error("Unable to check player overlap");
+    }
+
+    return overlap_result;
+}
+
 
 module.exports = {
     getBooking,
     insertBooking,
     getNewBooking,
     checkOverlap,
+    checkPlayerOverlap,
 }
