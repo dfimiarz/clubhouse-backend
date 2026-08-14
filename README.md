@@ -40,7 +40,7 @@ to take effect.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `rebooking_prompt_enabled` | boolean | `false` | Show the back-to-back rebooking prompt in the match booking flow. Opt-in: set to `'1'` per club |
+| `rebooking_prompt_enabled` | boolean | `false` | Show the back-to-back rebooking prompt in the match booking flow. Opt-in: set to `'1'` per club. Does **not** gate Fast rebook on Booking Details |
 | `prevent_concurrent_member_bookings` | boolean | `false` | Reject a member activity (`activity_group = 1`) when any roster player already has an overlapping member session on another court. Club sessions are not checked. Seeded to `'1'` for existing clubs by migration `0012` |
 
 There is no write endpoint or admin UI yet — values are changed with SQL.
@@ -166,10 +166,27 @@ Rebooking and start-time (same booking `flow_id` when emitted from match booking
 | `rebooking_declined` | confirmed with "starting now" | `person_ids`, `start_min` |
 | `rebooking_booked` | a booking followed an accepted suggestion | `person_ids`, `start_min`, `offered_start_min`, `kept_offer` |
 | `start_time_option_selected` | a start-time menu pick is applied | `option` (`rebooking` \| `now` \| `plus5` \| `other`), `start_min` |
+| `fast_rebook_completed` | Booking Details Fast rebook created a follow-on | `source_booking_id`, `person_ids`, `player_types`, `court_id`, `activity_type`, `start_min`, `duration_min`, `bumpable` |
 
 Only committed user actions are recorded: auto-seeded start/duration, rule-driven
 bumpable defaults, route-prefilled players, note text, and failed validation
 attempts are not.
+
+### Fast rebook (Booking Details)
+
+The client posts a normal `POST /bookings` after the confirm dialog. There is
+no dedicated Fast rebook route. That create path **does not** reject a session
+whose end is already in the past — the follow-on is supposed to start at the
+ended session's end even when the player taps late. Court overlap is exclusive
+at the endpoints, so a follow-on that starts exactly when the previous session
+ended does not collide with it.
+
+`GET /bookings/:id` includes each player's `player_type_id` (as well as the
+description) so the client can resolve a lineup without guessing types.
+
+Fast rebook is not gated by `rebooking_prompt_enabled`. Concurrent-player
+rejection still follows `prevent_concurrent_member_bookings`, the same as any
+other `POST /bookings`.
 
 ### Reading the numbers
 
@@ -181,10 +198,11 @@ GET /reports/rebookingplayers?from=2026-08-01&to=2026-08-08
 ```
 
 `rebooking` returns one row per day — `offered`, `accepted`, `declined`,
-`booked`, `booked_kept`, `booked_changed` and `accept_rate`, with empty days
-filled in. `rebookingplayers` returns offers, accepts and declines per member,
-busiest first. Days are bucketed in the club's time zone; `app_event.created`
-is UTC.
+`booked`, `booked_kept`, `booked_changed`, `accept_rate`, and `fast_rebooked`,
+with empty days filled in. `fast_rebooked` is the Booking Details shortcut
+and is not part of `accept_rate`. `rebookingplayers` returns offers, accepts
+and declines per member, busiest first. Days are bucketed in the club's time
+zone; `app_event.created` is UTC.
 
 Accepting the suggestion is not the end of the story: the start time stays
 editable afterwards, so an accepted suggestion can still be booked at a

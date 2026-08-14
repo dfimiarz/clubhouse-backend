@@ -168,6 +168,24 @@ const EVENTS = {
             })
             .strict(),
     },
+
+    // Booking Details Fast rebook confirmed and POST /bookings succeeded.
+    // Separate from the form prompt (rebooking_*): no offer/accept step.
+    // source_booking_id is the ended session the follow-on continues from.
+    fast_rebook_completed: {
+        props: z
+            .object({
+                source_booking_id: positiveInt,
+                person_ids: personIds,
+                player_types: z.array(positiveInt).min(1).max(8),
+                court_id: positiveInt,
+                activity_type: positiveInt,
+                start_min: minuteOfDay,
+                duration_min: durationMin,
+                bumpable: z.boolean(),
+            })
+            .strict(),
+    },
 };
 
 /**

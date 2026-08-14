@@ -147,6 +147,8 @@ function isNotFreshBooking({utc_start,utc_req_time}){
     return toUnix(utc_start) + FRESH_BOOKING_THRESHOLD_SEC <= toUnix(utc_req_time) ? null : "Booking too fresh"
 }
 
+// create does not run checkBookingNotEnded: Fast rebook and other
+// backdated follow-ons are allowed to occupy a slot whose end is already past.
 const validators = {
                      "create" : [ checkCourtSchedule, checkSameDayOnlyBooking, checkStartAndEndTime, checkBookingDuration ],
                      "cancel" : [ isActive, checkCancelTimeframe],

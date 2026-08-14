@@ -170,6 +170,30 @@ describe("analytics events", function () {
       expect(recorded).to.be.empty;
     });
 
+    it("accepts a Fast rebook completion", async function () {
+      const response = await request(createApp())
+        .post("/events")
+        .send({
+          name: "fast_rebook_completed",
+          flow_id: "fast-1",
+          client_ts: 1_710_000_000_123,
+          props: {
+            source_booking_id: 88,
+            person_ids: [7, 8],
+            player_types: [2, 3],
+            court_id: 4,
+            activity_type: 1000,
+            start_min: 600,
+            duration_min: 60,
+            bumpable: true,
+          },
+        });
+
+      expect(response.status).to.equal(202);
+      expect(recorded[0].name).to.equal("fast_rebook_completed");
+      expect(recorded[0].props.source_booking_id).to.equal(88);
+    });
+
     it("rejects a non-positive client_ts", async function () {
       const response = await request(createApp())
         .post("/events")

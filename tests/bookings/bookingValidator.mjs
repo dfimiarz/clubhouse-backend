@@ -57,6 +57,22 @@ describe("cancel permission", () => {
   });
 });
 
+describe("create permission", () => {
+  it("allows a follow-on whose end is already in the past", () => {
+    const errors = checkPermission(
+      "create",
+      booking({
+        schedule_id: 1,
+        utc_start: 1000,
+        utc_end: 1900,
+        utc_req_time: 2500,
+      })
+    );
+
+    expect(errors).to.deep.equal([]);
+  });
+});
+
 describe("same-day-only booking", () => {
   it("treats numeric and string calendar dates as the same day", () => {
     const errors = checkPermission(

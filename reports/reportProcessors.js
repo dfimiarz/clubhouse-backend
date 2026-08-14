@@ -240,10 +240,13 @@ const guestPassesProcessor = async function (name, from, to) {
  * acceptance with no booking at all was abandoned — derive that across the
  * whole range rather than per day, since a flow can cross midnight.
  *
+ * `fast_rebooked` counts Booking Details Fast rebook completions. It is not
+ * part of the form-prompt funnel and does not affect `accept_rate`.
+ *
  * @param {String} name Processor name
  * @param {String} from Date in ISO format, club local
  * @param {String} to Date in ISO format, club local
- * @returns {Array<Object>} date, offered, accepted, declined, booked, booked_kept, booked_changed, accept_rate
+ * @returns {Array<Object>} date, offered, accepted, declined, booked, booked_kept, booked_changed, accept_rate, fast_rebooked
  */
 const rebookingProcessor = async function (name, from, to) {
 
@@ -257,14 +260,15 @@ const rebookingProcessor = async function (name, from, to) {
             SUM(e.name = 'rebooking_accepted') AS accepted,
             SUM(e.name = 'rebooking_declined') AS declined,
             SUM(e.name = 'rebooking_booked') AS booked,
-            SUM(e.name = 'rebooking_booked' AND e.props->'$.kept_offer' = TRUE) AS booked_kept
+            SUM(e.name = 'rebooking_booked' AND e.props->'$.kept_offer' = TRUE) AS booked_kept,
+            SUM(e.name = 'fast_rebook_completed') AS fast_rebooked
         FROM
             app_event e
                 JOIN
             club c ON c.id = e.club
         WHERE
             e.club = ?
-            AND e.name IN ('rebooking_offered', 'rebooking_accepted', 'rebooking_declined', 'rebooking_booked')
+            AND e.name IN ('rebooking_offered', 'rebooking_accepted', 'rebooking_declined', 'rebooking_booked', 'fast_rebook_completed')
             AND DATE(CONVERT_TZ(e.created, 'UTC', c.time_zone)) BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date`;
@@ -278,7 +282,7 @@ const rebookingProcessor = async function (name, from, to) {
             throw new Error("Unable to retrieve report data");
         }
 
-        const resultMap = getDateMap(from, to, { offered: 0, accepted: 0, declined: 0, booked: 0, booked_kept: 0 });
+        const resultMap = getDateMap(from, to, { offered: 0, accepted: 0, declined: 0, booked: 0, booked_kept: 0, fast_rebooked: 0 });
 
         result.forEach(row => {
             resultMap.set(row.date, {
@@ -286,7 +290,8 @@ const rebookingProcessor = async function (name, from, to) {
                 accepted: Number(row.accepted),
                 declined: Number(row.declined),
                 booked: Number(row.booked),
-                booked_kept: Number(row.booked_kept)
+                booked_kept: Number(row.booked_kept),
+                fast_rebooked: Number(row.fast_rebooked),
             });
         });
 
@@ -299,6 +304,8 @@ const rebookingProcessor = async function (name, from, to) {
             booked_kept: value.booked_kept,
             // Accepted the suggestion, then edited the start time before booking.
             booked_changed: value.booked - value.booked_kept,
+            // Booking Details shortcut — not part of the form-prompt funnel.
+            fast_rebooked: value.fast_rebooked,
             // Null rather than 0 on a day with no offers: nothing was asked, so
             // there is no rate to report and a chart should show a gap.
             accept_rate: value.offered === 0 ? null : Math.round((value.accepted / value.offered) * 100) / 100
