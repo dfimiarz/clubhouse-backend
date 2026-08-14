@@ -13,7 +13,7 @@
     "test": "mocha --exit --require './tests/hooks.mjs' --recursive  './tests/**/*.mjs'"
   },
   "dependencies": {
-    "@google-cloud/logging": "^11.3.0",
+    "@google-cloud/logging": "^11.4.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "axios": "^1.19.0",
@@ -23,12 +23,12 @@
     "dayjs": "^1.11.21",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.6.1",
+    "express-rate-limit": "^8.6.2",
     "firebase-admin": "^14.2.0",
     "http-errors": "^2.0.1",
     "ioredis": "^5.11.1",
     "jsonschema": "^1.5.0",
-    "mysql2": "^3.23.2",
+    "mysql2": "^3.23.3",
     "pusher": "^5.3.4",
     "svg-captcha": "^1.4.0",
     "uuid": "^13.0.0",
@@ -40,9 +40,9 @@
     "@eslint/js": "^10.0.1",
     "@types/chai": "^5.2.3",
     "chai": "^6.2.2",
-    "eslint": "^10.8.0",
-    "globals": "^17.8.0",
-    "mocha": "^11.7.6",
+    "eslint": "^10.8.1",
+    "globals": "^17.9.0",
+    "mocha": "^11.8.0",
     "supertest": "^7.2.2"
   }
 }
