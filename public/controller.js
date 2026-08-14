@@ -1,14 +1,8 @@
-const dayjs = require("dayjs");
-const utc = require("dayjs/plugin/utc");
-const timezone = require("dayjs/plugin/timezone");
 const sqlconnector = require("../db/SqlConnector");
 const clubcontroller = require("../club/controller");
 const schedulecontroller = require("../club_schedule/controller");
 const RESTError = require("../utils/RESTError");
 const { log, appLogLevels } = require("../utils/logger/logger");
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 const CLUB_ID = process.env.CLUB_ID;
 
@@ -43,8 +37,7 @@ async function getPublicClubSchedules() {
 }
 
 async function getPublicBookingsForDate(date) {
-  const { time_zone } = await clubcontroller.getClubInfo();
-  const today = dayjs().tz(time_zone).format("YYYY-MM-DD");
+  const today = await clubcontroller.getClubLocalToday();
 
   if (date !== today) {
     throw new RESTError(403, "Public schedule is only available for today");

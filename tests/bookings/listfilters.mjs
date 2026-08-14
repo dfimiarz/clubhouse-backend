@@ -81,6 +81,15 @@ describe("buildBookingListFilters", () => {
     expect(result.filterPredicates.join(" ")).to.include("fp.person IN ( ? )");
     expect(result.filterParams).to.deep.equal([[1, 2, 3]]);
   });
+
+  it("adds group id filter", () => {
+    const result = buildBookingListFilters("2026-08-07", {
+      groupId: 1,
+    });
+
+    expect(result.filterPredicates.join(" ")).to.include("at.group = ?");
+    expect(result.filterParams).to.deep.equal([1]);
+  });
 });
 
 describe("GET /bookings list filter validation", () => {
@@ -93,6 +102,12 @@ describe("GET /bookings list filter validation", () => {
   });
 
   it("accepts rebooking window query params including ended_min_ago=0", async () => {
+    let receivedFilters;
+    bookingsController.getBookingsForDate = async (_date, filters) => {
+      receivedFilters = filters;
+      return [];
+    };
+
     const response = await request(createApp())
       .get("/bookings")
       .query({
@@ -104,6 +119,7 @@ describe("GET /bookings list filter validation", () => {
       });
 
     expect(response.status).to.equal(200);
+    expect(receivedFilters.personIds).to.deep.equal([1, 2]);
   });
 
   it("rejects ended_min_ago >= ended_max_ago", async () => {
@@ -125,6 +141,17 @@ describe("GET /bookings list filter validation", () => {
       .query({
         date: "2026-08-07",
         person_ids: ids,
+      });
+
+    expect(response.status).to.equal(422);
+  });
+
+  it("rejects a zero person id", async () => {
+    const response = await request(createApp())
+      .get("/bookings")
+      .query({
+        date: "2026-08-07",
+        person_ids: "0,1",
       });
 
     expect(response.status).to.equal(422);

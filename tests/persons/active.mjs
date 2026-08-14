@@ -311,6 +311,17 @@ describe("getActivePersons controller", () => {
       expect(result.map((p) => p.id)).to.deep.equal([2, 3]);
     });
 
+    it("matches ids after number conversion", async () => {
+      cachedList = [
+        { id: "2", firstname: "John", lastname: "Adams" },
+        { id: 3, firstname: "Amy", lastname: "Doe" },
+      ];
+
+      const result = await personsController.getActivePersons({ ids: [2, 3] });
+
+      expect(result.map((p) => Number(p.id))).to.deep.equal([2, 3]);
+    });
+
     it("gives ids precedence over search", async () => {
       const result = await personsController.getActivePersons({
         ids: [2],

@@ -117,8 +117,8 @@ async function getActivePersons({ ids, search, host } = {}) {
   }
 
   if (Array.isArray(ids) && ids.length > 0) {
-    const idSet = new Set(ids);
-    results = results.filter((person) => idSet.has(person.id));
+    const idSet = new Set(ids.map(Number));
+    results = results.filter((person) => idSet.has(Number(person.id)));
   } else if (search) {
     const term = foldAccents(search);
     results = results

@@ -1,11 +1,13 @@
 const express = require('express');
 const { z } = require('zod')
-const { validate, hhmm, isoDate, intLike, requiredIntLike } = require('./../utils/validate')
+const { validate, hhmm, isoDate, intLike, requiredIntLike, csvIntList } = require('./../utils/validate')
 const matchcontroller = require('./controller')
+const { resolveSessionRules, MATCH_PLAYER_TYPE_IDS } = require('./sessionRules')
 const { checkBookingPermissions, validatePatchRequest, validateBatchInsertRequest } = require('./middleware')
 const { authGuard } = require('../middleware/clientauth')
 const pusher = require('./../pusher/Pusher')
 const { log, appLogLevels } = require('./../utils/logger/logger');
+const RESTError = require('./../utils/RESTError')
 
 
 const router = express.Router();
@@ -24,12 +26,13 @@ router.get('/', authGuard, validate(
                ended_min_ago: intLike('Invalid ended_min_ago').pipe(z.number().min(0).max(120)).optional(),
                ended_max_ago: intLike('Invalid ended_max_ago').pipe(z.number().min(1).max(120)).optional(),
                // Cap list size: match booking allows ≤4 players; leave headroom for admin tools
-               person_ids: z.string()
-                    .regex(/^\d+(,\d+)*$/, 'Invalid person_ids')
-                    .refine((value) => value.split(',').length <= 20, {
-                         error: 'Too many person_ids',
-                    })
-                    .optional()
+               person_ids: csvIntList({
+                    message: 'Invalid person_ids',
+                    max: 20,
+                    maxMessage: 'Too many person_ids',
+                    item: (n) => Number.isSafeInteger(n) && n > 0,
+                    itemMessage: 'Invalid person_ids',
+               }).optional()
           }).refine(
                (query) => query.ended_min_ago === undefined
                     || query.ended_max_ago === undefined
@@ -47,7 +50,7 @@ router.get('/', authGuard, validate(
                rebookable: req.query.rebookable === '1',
                endedMinAgo: req.query.ended_min_ago ?? null,
                endedMaxAgo: req.query.ended_max_ago ?? null,
-               personIds: req.query.person_ids ? req.query.person_ids.split(',').map(Number) : null
+               personIds: req.query.person_ids ?? null
           }
 
           matchcontroller.getBookingsForDate(date, filters)
@@ -117,6 +120,64 @@ router.get('/availability', authGuard, validate(
                     next(err)
                })
 
+     }
+);
+
+/**
+ * Preferred duration and bumpable flag for a chosen match-booking lineup.
+ * Must stay above GET /:id so "session-rules" is not parsed as an id.
+ */
+router.get('/session-rules', authGuard, validate(
+     {
+          query: z.object({
+               player_types: csvIntList({
+                    message: 'Invalid player_types',
+                    max: 4,
+                    maxMessage: 'Too many player_types',
+                    item: (n) => MATCH_PLAYER_TYPE_IDS.has(n),
+                    itemMessage: 'Unknown player type',
+               })
+          })
+     },
+     { payload: () => "Invalid query parameter", logPrefix: "Get session rules parameter error" }
+),
+     (req, res, next) => {
+          try {
+               res.json(resolveSessionRules(req.query.player_types))
+          } catch (err) {
+               next(err instanceof RESTError ? err : new RESTError(422, err.message))
+          }
+     }
+);
+
+/**
+ * Suggested participant types for people being added to a same-day booking.
+ * Must stay above GET /:id so "player-types" is not parsed as an id.
+ */
+router.get('/player-types', authGuard, validate(
+     {
+          query: z.object({
+               person_ids: csvIntList({
+                    message: 'Invalid person_ids',
+                    max: 4,
+                    maxMessage: 'Too many person_ids',
+                    unique: true,
+                    uniqueMessage: 'Duplicate person_ids',
+                    item: (n) => Number.isSafeInteger(n) && n > 0,
+                    itemMessage: 'Invalid person_ids',
+               })
+          })
+     },
+     { payload: () => "Invalid query parameter", logPrefix: "Get player types parameter error" }
+),
+     (req, res, next) => {
+          matchcontroller.suggestPlayerTypesForToday(req.query.person_ids)
+               .then((result) => {
+                    res.json(result)
+               })
+               .catch((err) => {
+                    next(err)
+               })
      }
 );
 

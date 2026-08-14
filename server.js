@@ -49,6 +49,7 @@ app.use("/bookings", require("./bookings/api"));
 app.use("/persons", require("./persons/api"));
 app.use("/auth", require("./auth/api"));
 app.use("/booking_types", require("./booking_types/api"));
+app.use("/participant-types", require("./participant-types/api"));
 app.use("/club_schedule", require("./club_schedule/api.js"));
 app.use("/club", require("./club/api"));
 app.use("/reports", require("./reports/api"));

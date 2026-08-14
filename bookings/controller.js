@@ -12,6 +12,8 @@ const {
 } = require("./BookingUtils");
 const { transactionType } = require("../utils/dbutils");
 const { log, appLogLevels } = require('./../utils/logger/logger');
+const clubcontroller = require("../club/controller");
+const { suggestPlayerTypes, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 
 const CLUB_ID = process.env.CLUB_ID;
 
@@ -37,6 +39,11 @@ function buildBookingListFilters(date, filters = {}) {
 
   if (filters.rebookable) {
     filterPredicates.push("AND at.member_rebookable = 1");
+  }
+
+  if (filters.groupId != null) {
+    filterPredicates.push("AND at.group = ?");
+    filterParams.push(filters.groupId);
   }
 
   if (filters.endedMaxAgo != null) {
@@ -87,6 +94,7 @@ function buildBookingListFilters(date, filters = {}) {
  * @param {string} date - The date (YYYY-MM-DD) for which to retrieve bookings.
  * @param {Object} [filters] - Optional row filters; absent filters leave the query unchanged.
  * @param {boolean} [filters.rebookable] - Only bookings whose activity type has member_rebookable = 1.
+ * @param {number} [filters.groupId] - Only bookings with this activity_type.group.
  * @param {number} [filters.endedMinAgo] - Only bookings that ended at least N minutes ago (club time).
  * @param {number} [filters.endedMaxAgo] - Only bookings that ended no more than N minutes ago (club time).
  * @param {number[]} [filters.personIds] - Only bookings with at least one of these participants.
@@ -316,6 +324,25 @@ async function addBooking(request) {
         )
       ) {
         throw new RESTError(422, "Person(s) not found");
+      }
+
+      const uniqueTypeIds = [...new Set(players.map((player) => Number(player.type)))];
+      const participant_type_q = `SELECT id
+                                  FROM participant_type
+                                  WHERE id IN ?
+                                  LOCK IN SHARE MODE`;
+      const participant_type_result = await sqlconnector.runQuery(
+        connection,
+        participant_type_q,
+        [[uniqueTypeIds]]
+      );
+      const knownTypeIds = new Set(
+        (Array.isArray(participant_type_result) ? participant_type_result : []).map(
+          (row) => Number(row.id)
+        )
+      );
+      if (uniqueTypeIds.some((id) => !knownTypeIds.has(id))) {
+        throw new RESTError(422, "Invalid player type");
       }
 
       // Type must be enabled for this club; effective min (club override or global)
@@ -588,6 +615,84 @@ async function getCourtAvailability(date, start, end) {
   }
 }
 
+/**
+ * Club person ids from the requested list. Ids that are missing or belong
+ * to another club are omitted.
+ *
+ * @param {number[]} personIds
+ * @returns {Promise<Set<number>>}
+ */
+async function findClubPersonIds(personIds) {
+  if (!personIds.length) {
+    return new Set();
+  }
+
+  const rows = await sqlconnector.withConnection(async (connection) => {
+    return sqlconnector.runQuery(
+      connection,
+      `SELECT p.id
+       FROM clubhouse.person p
+       WHERE p.id IN ?
+         AND p.club = ?`,
+      [[personIds], CLUB_ID]
+    );
+  });
+
+  return new Set(
+    (Array.isArray(rows) ? rows : []).map((row) => Number(row.id))
+  );
+}
+
+/**
+ * Suggest participant types for the given people from today's member sessions.
+ * Loads member-group bookings (activity_group = 1) on the club-local date that
+ * include at least one requested club person. Club programs and support
+ * blocks are ignored. Each row still has the full roster so player count and
+ * duration are complete; only 1–4 player rosters contribute to the factor.
+ *
+ * Unknown ids (not a person at this club) still get a row with
+ * player_type_id null. A known person with no member sessions today is a
+ * non-repeater.
+ *
+ * @param {number[]} personIds
+ * @returns {Promise<{ date: string, players: Array<{ person_id: number, player_type_id: number|null }> }>}
+ */
+async function suggestPlayerTypesForToday(personIds) {
+  const OPCODE = "SUGGEST_PLAYER_TYPES";
+
+  try {
+    const [today, knownIds] = await Promise.all([
+      clubcontroller.getClubLocalToday(),
+      findClubPersonIds(personIds),
+    ]);
+
+    const sessions =
+      knownIds.size === 0
+        ? []
+        : await getBookingsForDate(today, {
+            personIds: [...knownIds],
+            groupId: MEMBER_ACTIVITY_GROUP_ID,
+          });
+    const classified = suggestPlayerTypes(personIds, sessions, knownIds);
+
+    return {
+      date: today,
+      players: classified.map(({ person_id, player_type_id }) => ({
+        person_id,
+        player_type_id,
+      })),
+    };
+  } catch (error) {
+    log(
+      appLogLevels.ERROR,
+      `Unable to suggest player types: ${error.message}`
+    );
+    throw error instanceof RESTError
+      ? error
+      : new SQLErrorFactory.getError(OPCODE, error);
+  }
+}
+
 module.exports = {
   addBooking,
   getBookingData,
@@ -596,4 +701,5 @@ module.exports = {
   getOverlappingBookings,
   getCourtAvailability,
   buildBookingListFilters,
+  suggestPlayerTypesForToday,
 };

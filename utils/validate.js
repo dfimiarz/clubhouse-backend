@@ -173,11 +173,58 @@ function requiredIntLike(missingMessage, invalidMessage) {
     return z.custom((value) => value !== undefined, missingMessage).pipe(intLike(invalidMessage));
 }
 
+/**
+ * Comma-separated integers from a query string ("1,2,3"), parsed to number[].
+ *
+ * @param {Object} options
+ * @param {string} options.message Format error
+ * @param {number} [options.max] Max list length
+ * @param {string} [options.maxMessage='Too many values']
+ * @param {boolean} [options.unique=false]
+ * @param {string} [options.uniqueMessage='Duplicate values']
+ * @param {(n: number) => boolean} [options.item] Predicate each id must pass
+ * @param {string} [options.itemMessage='Invalid value']
+ * @returns {import('zod').ZodType<number[]>}
+ */
+function csvIntList(options = {}) {
+    const {
+        message,
+        max,
+        maxMessage = 'Too many values',
+        unique = false,
+        uniqueMessage = 'Duplicate values',
+        item,
+        itemMessage = 'Invalid value'
+    } = options;
+
+    let schema = z
+        .string(message)
+        .regex(/^\d+(,\d+)*$/, message)
+        .transform((value) => value.split(',').map(Number));
+
+    if (max != null) {
+        schema = schema.refine((ids) => ids.length <= max, { error: maxMessage });
+    }
+
+    if (unique) {
+        schema = schema.refine((ids) => new Set(ids).size === ids.length, {
+            error: uniqueMessage
+        });
+    }
+
+    if (item) {
+        schema = schema.refine((ids) => ids.every(item), { error: itemMessage });
+    }
+
+    return schema;
+}
+
 module.exports = {
     validate,
     hhmm,
     isoDate,
     iso8601,
     intLike,
-    requiredIntLike
+    requiredIntLike,
+    csvIntList
 };

@@ -1,8 +1,14 @@
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
 const sqlconnector = require('../db/SqlConnector');
 const RESTError = require('./../utils/RESTError');
 const { storeJSON, getJSON } = require('./../db/RedisConnector');
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { resolveSettings } = require('./settings');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const CLUB_ID = process.env.CLUB_ID;
 
@@ -179,6 +185,15 @@ async function getClubInfo() {
     }
 }
 
+/**
+ * Club-local calendar date for "now" (YYYY-MM-DD).
+ */
+async function getClubLocalToday() {
+    const { time_zone } = await getClubInfo();
+    return dayjs().tz(time_zone).format('YYYY-MM-DD');
+}
+
 module.exports = {
-    getClubInfo
+    getClubInfo,
+    getClubLocalToday
 }
