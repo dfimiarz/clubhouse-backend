@@ -145,7 +145,7 @@ const memberActivitiesProcessor = async function (name, from, to) {
                 date: row.date,
                 start: row.start,
                 end: row.end,
-                dur_min: row.dur_min,
+                dur_min: Number(row.dur_min),
                 player: row.player,
                 player_type: row.player_type,
                 member_role: row.member_role,
@@ -175,7 +175,7 @@ const guestPassesProcessor = async function (name, from, to) {
     const passes_q =
         `SELECT 
             gp.id,
-            UNIX_TIMESTAMP(gp.created) as created_utc,
+            UNIX_TIMESTAMP(gp.created) DIV 1 as created_utc,
             DATE_FORMAT(CONVERT_TZ(gp.created,'UTC',c.time_zone),'%m/%d/%y %h:%i %p') as created,
             DATE_FORMAT(valid_from, '%m/%d/%y %h:%i %p') as valid_from,
             DATE_FORMAT(valid_to, '%m/%d/%y %h:%i %p') as valid_to,
@@ -207,7 +207,7 @@ const guestPassesProcessor = async function (name, from, to) {
                 return {
                     pass_id: row.id,
                     created: row.created,
-                    created_utc: row.created_utc,
+                    created_utc: Number(row.created_utc),
                     valid_from: row.valid_from,
                     valid_to: row.valid_to,
                     host: row.host,

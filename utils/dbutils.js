@@ -38,8 +38,21 @@ function parseJsonColumn(value) {
     return typeof value === "string" ? JSON.parse(value) : value;
 }
 
+/**
+ * mysql2 returns DECIMAL as a string. Use this before any JS + / - on
+ * UNIX_TIMESTAMP / ROUND results so "123.000000" + 300 is addition, not concat.
+ *
+ * @param {unknown} value
+ * @returns {number}
+ */
+function toFiniteNumber(value) {
+    const n = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(n) ? n : NaN;
+}
+
 module.exports = {
     formatQuery,
     parseJsonColumn,
+    toFiniteNumber,
     transactionType
 }

@@ -173,8 +173,8 @@ async function getClubSchedules() {
                                     cs.name,
                                     DATE_FORMAT(\`from\`,"%Y-%m-%d") as \`from\`,
                                     DATE_FORMAT(\`to\`,"%Y-%m-%d") as \`to\`,
-                                    UNIX_TIMESTAMP(CONVERT_TZ(\`from\`,c.time_zone,@@GLOBAL.time_zone)) AS from_ms,
-                                    UNIX_TIMESTAMP(CONVERT_TZ(\`to\`,c.time_zone,@@GLOBAL.time_zone)) AS to_ms,
+                                    UNIX_TIMESTAMP(CONVERT_TZ(\`from\`,c.time_zone,@@GLOBAL.time_zone)) DIV 1 AS from_ms,
+                                    UNIX_TIMESTAMP(CONVERT_TZ(\`to\`,c.time_zone,@@GLOBAL.time_zone)) DIV 1 AS to_ms,
                                     time_to_sec(default_cal_start) DIV 60 as default_start_min,
                                     time_to_sec(default_cal_end) DIV 60 as default_end_min
                                 FROM 
@@ -253,9 +253,9 @@ async function getClubSchedules() {
                 club: schedule["club"],
                 name: schedule["name"],
                 from: schedule["from"],
-                from_ms: schedule["from_ms"],
+                from_ms: Number(schedule["from_ms"]),
                 to: schedule["to"],
-                to_ms: schedule["to_ms"],
+                to_ms: Number(schedule["to_ms"]),
                 default_start_min: schedule["default_start_min"],
                 default_end_min: schedule["default_end_min"],
                 open_time_frames: open_time_frames,

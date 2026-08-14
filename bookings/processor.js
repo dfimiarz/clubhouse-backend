@@ -273,7 +273,7 @@ async function changeCourt(id, cmd) {
 
         let initValues;
 
-        if (booking.utc_start > booking.utc_req_time) {
+        if (Number(booking.utc_start) > Number(booking.utc_req_time)) {
             //Session is in the future so change the court right away
             const remove_activity_q = `UPDATE activity SET active = 0 where id = ?`
 

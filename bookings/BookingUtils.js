@@ -1,15 +1,15 @@
 const sqlconnector = require('../db/SqlConnector');
-const { formatQuery, transactionType } = require('../utils/dbutils');
+const { formatQuery, transactionType, toFiniteNumber } = require('../utils/dbutils');
 
 const CLUB_ID = process.env.CLUB_ID;
 
 const booking_q = `SELECT c.id AS court_id,
-                        UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(a.date, ' ', a.start),cl.time_zone,@@GLOBAL.time_zone)) AS utc_start,
-                        UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(a.date, ' ', a.end),cl.time_zone,@@GLOBAL.time_zone)) AS utc_end,
-                        UNIX_TIMESTAMP(a.created) AS utc_created,
-                        UNIX_TIMESTAMP(a.updated) AS utc_updated,
-                        UNIX_TIMESTAMP(CONVERT_TZ(a.date,cl.time_zone,@@GLOBAL.time_zone)) AS utc_day_start,
-                        UNIX_TIMESTAMP(NOW()) AS utc_req_time,
+                        UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(a.date, ' ', a.start),cl.time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_start,
+                        UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(a.date, ' ', a.end),cl.time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_end,
+                        UNIX_TIMESTAMP(a.created) DIV 1 AS utc_created,
+                        UNIX_TIMESTAMP(a.updated) DIV 1 AS utc_updated,
+                        UNIX_TIMESTAMP(CONVERT_TZ(a.date,cl.time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_day_start,
+                        UNIX_TIMESTAMP(NOW()) DIV 1 AS utc_req_time,
                         CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone) AS DATE) + 0 AS loc_req_date,
                         CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone) AS TIME) AS loc_req_time,
                         DATE_FORMAT(a.date,"%Y-%m-%d" ) as date,
@@ -78,7 +78,7 @@ const booking_time_q = `SELECT
                             UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:start),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_start,
                             UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:end),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_end,
                             UNIX_TIMESTAMP(CONVERT_TZ(:date,time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_day_start,
-                            UNIX_TIMESTAMP(NOW()) AS utc_req_time,
+                            UNIX_TIMESTAMP(NOW()) DIV 1 AS utc_req_time,
                             CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, time_zone) AS DATE) + 0 AS loc_req_date,
                             CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, time_zone) AS TIME) AS loc_req_time,
                             CAST(:date AS DATE) + 0 AS numeric_date,
@@ -178,14 +178,14 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
 
     const booking = {
         id: booking_result[0]['id'],
-        utc_start: booking_result[0]['utc_start'],
-        utc_end: booking_result[0]['utc_end'],
-        utc_day_start: booking_result[0]['utc_day_start'],
-        utc_req_time: booking_result[0]['utc_req_time'],
-        loc_req_date: booking_result[0]['loc_req_date'],
+        utc_start: toFiniteNumber(booking_result[0]['utc_start']),
+        utc_end: toFiniteNumber(booking_result[0]['utc_end']),
+        utc_day_start: toFiniteNumber(booking_result[0]['utc_day_start']),
+        utc_req_time: toFiniteNumber(booking_result[0]['utc_req_time']),
+        loc_req_date: toFiniteNumber(booking_result[0]['loc_req_date']),
         loc_req_time: booking_result[0]['loc_req_time'],
-        utc_created: booking_result[0]['utc_created'],
-        utc_updated: booking_result[0]['utc_updated'],
+        utc_created: toFiniteNumber(booking_result[0]['utc_created']),
+        utc_updated: toFiniteNumber(booking_result[0]['utc_updated']),
         date: booking_result[0]['date'],
         numeric_date: booking_result[0]['numeric_date'],
         start: booking_result[0]['start'],
@@ -337,12 +337,12 @@ async function getNewBooking(connection, initValues) {
         return null
     }
 
-    booking.numeric_date = bookingtime_result[0].numeric_date;
-    booking.utc_start = bookingtime_result[0].utc_start;
-    booking.utc_end = bookingtime_result[0].utc_end;
-    booking.utc_day_start = bookingtime_result[0].utc_day_start;
-    booking.utc_req_time = bookingtime_result[0].utc_req_time;
-    booking.loc_req_date = bookingtime_result[0].loc_req_date;
+    booking.numeric_date = toFiniteNumber(bookingtime_result[0].numeric_date);
+    booking.utc_start = toFiniteNumber(bookingtime_result[0].utc_start);
+    booking.utc_end = toFiniteNumber(bookingtime_result[0].utc_end);
+    booking.utc_day_start = toFiniteNumber(bookingtime_result[0].utc_day_start);
+    booking.utc_req_time = toFiniteNumber(bookingtime_result[0].utc_req_time);
+    booking.loc_req_date = toFiniteNumber(bookingtime_result[0].loc_req_date);
     booking.loc_req_time = bookingtime_result[0].loc_req_time;
     booking.time_zone = bookingtime_result[0].time_zone;
     booking.schedule_id = bookingtime_result[0].schedule_id;

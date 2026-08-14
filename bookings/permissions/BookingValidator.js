@@ -43,8 +43,12 @@ player_type_id,
 
 */
 
+const { toFiniteNumber } = require("../../utils/dbutils");
+
 const MIN_NEW_BOOKING_DURATION = 5 * 60;
 const FRESH_BOOKING_THRESHOLD_SEC = 5 * 60;
+
+const toUnix = toFiniteNumber;
 
 function checkCourtSchedule({schedule_id}){
 
@@ -66,22 +70,22 @@ function checkSameDayOnlyBooking({ loc_req_date, numeric_date, same_day_only }) 
     if (same_day_only == null || same_day_only == 0) {
         return null;
     }
-    return loc_req_date !== numeric_date
+    return toFiniteNumber(loc_req_date) !== toFiniteNumber(numeric_date)
         ? "This activity must be booked for today"
         : null;
 }
 
 function checkStartAndEndTime({utc_start,utc_end}){
-    return utc_start >= utc_end ? "Session must start before ending " : null;
+    return toUnix(utc_start) >= toUnix(utc_end) ? "Session must start before ending " : null;
 }
 
 function checkBookingDuration({utc_start,utc_end}){
-    return utc_end - utc_start < MIN_NEW_BOOKING_DURATION ? "Session must be at least 5 minutes long" : null
+    return toUnix(utc_end) - toUnix(utc_start) < MIN_NEW_BOOKING_DURATION ? "Session must be at least 5 minutes long" : null
 }
 
 function checkBookingNotEnded({utc_end,utc_req_time}){
     
-    if(  utc_end < utc_req_time ){
+    if(  toUnix(utc_end) < toUnix(utc_req_time) ){
         //Cannot change time for sessions that have ended
         return "Booking has ended";
 
@@ -93,22 +97,26 @@ function checkBookingNotEnded({utc_end,utc_req_time}){
 }
 
 function checkCancelTimeframe({utc_end,utc_req_time,utc_created,utc_start}){
+    const end = toUnix(utc_end);
+    const req = toUnix(utc_req_time);
+    const created = toUnix(utc_created);
+    const start = toUnix(utc_start);
 
-    if(  utc_end < utc_req_time ){
+    if(  end < req ){
         //Sessiong that have ended can be cancelled within 5 mintues of creation
-        return utc_created + (5 * 60) <= utc_req_time ? "Sessions that have ended can be cancelled within 5 mintute of creation time" : null;
+        return created + FRESH_BOOKING_THRESHOLD_SEC <= req ? "Sessions that have ended can be cancelled within 5 mintute of creation time" : null;
 
     } else {
 
-        if( utc_start < utc_req_time ){
+        if( start < req ){
 
-            if( utc_start < utc_created ){
+            if( start < created ){
                 //Ongoing sessions booked retroactively can be cancelled within 5 mintues of creation
-                return utc_created + (5 * 60) <= utc_req_time ? "Ongoing bookings can be cancelled within 5 mintues of creation time" : null;
+                return created + FRESH_BOOKING_THRESHOLD_SEC <= req ? "Ongoing bookings can be cancelled within 5 mintues of creation time" : null;
             }
             else{
                 //Ongoing sessions booked ahead of time can be cancelled within 5 mintues of starting
-                return utc_start + FRESH_BOOKING_THRESHOLD_SEC <= utc_req_time ? "Unable to cancel onging booking" : null;
+                return start + FRESH_BOOKING_THRESHOLD_SEC <= req ? "Unable to cancel onging booking" : null;
             }
 
         } else {
@@ -126,14 +134,17 @@ function isActive({active}){
 }
 
 function isOngoing({utc_start,utc_end,utc_req_time}){
+    const start = toUnix(utc_start);
+    const end = toUnix(utc_end);
+    const req = toUnix(utc_req_time);
 
-    return utc_req_time < utc_end && utc_req_time >= utc_start ? null : "Booking must be ongoing";
+    return req < end && req >= start ? null : "Booking must be ongoing";
 
 }
 
 //Fresh booking is one that stared FRESH_BOOKING_THRESHOLD_SEC before utc_req_time
 function isNotFreshBooking({utc_start,utc_req_time}){
-    return utc_start + FRESH_BOOKING_THRESHOLD_SEC <= utc_req_time ? null : "Booking too fresh"
+    return toUnix(utc_start) + FRESH_BOOKING_THRESHOLD_SEC <= toUnix(utc_req_time) ? null : "Booking too fresh"
 }
 
 const validators = {

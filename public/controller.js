@@ -69,8 +69,8 @@ async function getPublicBookingsForDate(date) {
       date: booking.date,
       start: booking.start,
       end: booking.end,
-      start_min: booking.start_min,
-      end_min: booking.end_min,
+      start_min: Number(booking.start_min),
+      end_min: Number(booking.end_min),
       status: "busy",
     }));
   } catch (error) {
