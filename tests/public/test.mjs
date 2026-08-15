@@ -82,6 +82,9 @@ describe("Public schedule API", () => {
           start_min: 540,
           end_min: 585,
           status: "busy",
+          booking_type_desc: "Match",
+          calendar_style: "match",
+          utility: 1,
         },
         {
           court: 2,
@@ -92,6 +95,8 @@ describe("Public schedule API", () => {
           end_min: 720,
           status: "busy",
           booking_type_desc: "Rain Break",
+          calendar_style: "event",
+          utility: 0,
         },
       ];
     };
@@ -143,6 +148,9 @@ describe("Public schedule API", () => {
         start_min: 540,
         end_min: 585,
         status: "busy",
+        booking_type_desc: "Match",
+        calendar_style: "match",
+        utility: 1,
       },
       {
         court: 2,
@@ -153,13 +161,14 @@ describe("Public schedule API", () => {
         end_min: 720,
         status: "busy",
         booking_type_desc: "Rain Break",
+        calendar_style: "event",
+        utility: 0,
       },
     ]);
 
     for (const booking of response.body) {
       assertNoPrivatePublicBookingFields(booking);
     }
-    expect(response.body[0]).to.not.have.property("booking_type_desc");
   });
 
   it("rejects invalid public booking dates", async () => {
@@ -193,8 +202,6 @@ const PRIVATE_PUBLIC_BOOKING_KEYS = [
   "id",
   "type",
   "group_id",
-  "calendar_style",
-  "utility",
   "bumpable",
   "etag",
 ];
@@ -218,49 +225,62 @@ function assertNoPrivatePublicBookingFields(booking) {
 }
 
 describe("toPublicBooking", () => {
-  it("returns occupancy only for member and club groups", () => {
-    for (const row of [
-      occupancyRow({ type: 1000, group: 1, booking_type_desc: "Match" }),
-      occupancyRow({ type: 5000, group: 2, booking_type_desc: "Lesson" }),
-      occupancyRow({ type: 8000, group: 2, booking_type_desc: "Club Event" }),
-    ]) {
-      const booking = publicController.toPublicBooking(row);
-      expect(booking).to.deep.equal({
-        court: 1,
-        date: "2026-04-27",
-        start: "09:00:00",
-        end: "09:45:00",
-        start_min: 540,
-        end_min: 585,
+  it("adds catalog label, calendar style, and utility for any session", () => {
+    const cases = [
+      { desc: "Match", calendar_style: "match", utility: 1 },
+      { desc: "Lesson", calendar_style: "lesson", utility: 1 },
+      { desc: "Club Event", calendar_style: "event", utility: 1 },
+      { desc: "Maintenance", calendar_style: "event", utility: 0 },
+      { desc: "Rain Break", calendar_style: "event", utility: 0 },
+    ];
+
+    for (const { desc, calendar_style, utility } of cases) {
+      const booking = publicController.toPublicBooking(
+        occupancyRow({
+          booking_type_desc: desc,
+          calendar_style,
+          utility,
+        })
+      );
+      expect(booking).to.include({
+        booking_type_desc: desc,
+        calendar_style,
+        utility,
         status: "busy",
       });
       assertNoPrivatePublicBookingFields(booking);
-      expect(booking).to.not.have.property("booking_type_desc");
     }
   });
 
-  it("adds booking_type_desc for any support-group session", () => {
-    const cases = [
-      { type: 7000, desc: "Maintenance" },
-      { type: 7001, desc: "Rain Break" },
-      { type: 7002, desc: "Court Closed" },
-      { type: 7999, desc: "Heat Closure" },
-    ];
+  it("prefers catalog lbl and falls back to desc", () => {
+    const labeled = publicController.toPublicBooking(
+      occupancyRow({
+        booking_type_desc: "Match",
+        booking_type_lbl: "MATCH",
+        calendar_style: "match",
+        utility: 1,
+      })
+    );
+    expect(labeled.booking_type_desc).to.equal("MATCH");
 
-    for (const { type, desc } of cases) {
-      const booking = publicController.toPublicBooking(
-        occupancyRow({ type, group: 3, booking_type_desc: desc })
-      );
-      expect(booking.booking_type_desc).to.equal(desc);
-      expect(booking.status).to.equal("busy");
-      assertNoPrivatePublicBookingFields(booking);
-    }
+    const fallback = publicController.toPublicBooking(
+      occupancyRow({
+        booking_type_desc: "Match",
+        booking_type_lbl: "  ",
+        calendar_style: "match",
+        utility: 1,
+      })
+    );
+    expect(fallback.booking_type_desc).to.equal("Match");
+    assertNoPrivatePublicBookingFields(labeled);
+    assertNoPrivatePublicBookingFields(fallback);
   });
 
-  it("omits a blank support description", () => {
+  it("omits the label when desc and lbl are blank", () => {
     const booking = publicController.toPublicBooking(
-      occupancyRow({ type: 7001, group: 3, booking_type_desc: "  " })
+      occupancyRow({ booking_type_desc: "  ", booking_type_lbl: "  " })
     );
     expect(booking).to.not.have.property("booking_type_desc");
+    assertNoPrivatePublicBookingFields(booking);
   });
 });

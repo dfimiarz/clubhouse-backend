@@ -6,12 +6,10 @@ const { log, appLogLevels } = require("../utils/logger/logger");
 
 const CLUB_ID = process.env.CLUB_ID;
 
-/** activity_group.id for Support (maintenance / rain / closed and future peers). */
-const SUPPORT_ACTIVITY_GROUP_ID = 3;
-
 /**
- * Allow-listed public booking row. Occupancy always; catalog label only for
- * support-group sessions. Do not copy fields off the authenticated shape.
+ * Allow-listed public booking row. Occupancy, catalog label, and the fields
+ * the visitor calendar needs to pick match / lesson / event styling.
+ * Do not copy fields off the authenticated shape.
  *
  * @param {object} row
  * @returns {object}
@@ -29,9 +27,23 @@ function toPublicBooking(row) {
 
   const desc =
     typeof row.booking_type_desc === "string" ? row.booking_type_desc.trim() : "";
-
-  if (Number(row.group) === SUPPORT_ACTIVITY_GROUP_ID && desc) {
+  const lbl =
+    typeof row.booking_type_lbl === "string" ? row.booking_type_lbl.trim() : "";
+  if (lbl) {
+    booking.booking_type_desc = lbl;
+  } else if (desc) {
     booking.booking_type_desc = desc;
+  }
+
+  const style =
+    typeof row.calendar_style === "string" ? row.calendar_style.trim() : "";
+  if (style) {
+    booking.calendar_style = style;
+  }
+
+  const utility = Number(row.utility);
+  if (Number.isFinite(utility)) {
+    booking.utility = utility;
   }
 
   return booking;
@@ -82,11 +94,14 @@ async function getPublicBookingsForDate(date) {
       end,
       TIME_TO_SEC(start) DIV 60 AS start_min,
       TIME_TO_SEC(end) DIV 60 AS end_min,
-      at.\`group\` AS \`group\`,
-      at.desc AS booking_type_desc
+      at.desc AS booking_type_desc,
+      at.lbl AS booking_type_lbl,
+      at.calendar_style AS calendar_style,
+      ag.utility_factor AS utility
     FROM activity
     JOIN court c ON c.id = activity.court
     JOIN activity_type at ON at.id = activity.type
+    JOIN activity_group ag ON at.\`group\` = ag.id
     WHERE date = ?
       AND active = 1
       AND c.club = ?
