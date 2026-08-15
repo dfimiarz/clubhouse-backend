@@ -18,6 +18,10 @@ const {
   assertNoConcurrentMemberBookings,
   lockRosterIfNeeded,
 } = require("./playerOverlap");
+const {
+  assertGuestsAccompaniedByMember,
+  assertGuestsHaveValidPasses,
+} = require("./guestPass");
 
 const CLUB_ID = process.env.CLUB_ID;
 
@@ -463,6 +467,9 @@ async function addBooking(request) {
       //END
 
       await assertNoConcurrentMemberBookings(connection, booking);
+
+      await assertGuestsAccompaniedByMember(connection, booking);
+      await assertGuestsHaveValidPasses(connection, booking);
 
       await insertBooking(connection, booking);
 
