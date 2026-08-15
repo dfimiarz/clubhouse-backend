@@ -107,4 +107,26 @@ describe("New booking validation", () => {
 
     expect(response.status).to.equal(201);
   });
+
+  it("accepts a note of 256 characters", async () => {
+    const response = await post(validBooking({ note: "x".repeat(256) }));
+
+    expect(response.status).to.equal(201);
+  });
+
+  it("accepts a 257-character note that trims to 256", async () => {
+    const response = await post(validBooking({ note: `${"x".repeat(256)} ` }));
+
+    expect(response.status).to.equal(201);
+  });
+
+  it("rejects a note longer than 256 characters", async () => {
+    const response = await post(validBooking({ note: "x".repeat(257) }));
+
+    expect(response.status).to.equal(422);
+    expect(response.body.fielderrors).to.deep.include({
+      param: "note",
+      msg: "Note too long",
+    });
+  });
 });

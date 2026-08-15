@@ -216,7 +216,8 @@ const newBookingBody = z.object({
      start: hhmm("Invalid format"),
      end: hhmm("Invalid format"),
      //nullish, not optional: the client sends note: null when the field is blank
-     note: z.string("Invalid note").trim().nullish()
+     //varchar(256) on activity.notes — same cap as CHANGE_NOTE
+     note: z.string("Invalid note").trim().max(256, "Note too long").nullish()
 })
 
 router.post('/', authGuard, validate(

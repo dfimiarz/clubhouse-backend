@@ -282,6 +282,43 @@ async function getBookingsForDate(date, filters = {}) {
 }
 
 /**
+ * One person per membership-join row. Extra covering memberships collapse to
+ * the first role. Null when the distinct people do not match requestedIds.
+ *
+ * @param {unknown} rows
+ * @param {unknown[]} requestedIds
+ * @returns {Array<{ id: number, role: unknown }>|null}
+ */
+function personsCoveringBookingDate(rows, requestedIds) {
+  if (!Array.isArray(requestedIds) || requestedIds.length === 0) {
+    return null;
+  }
+
+  const persons = [];
+  const seen = new Set();
+
+  if (Array.isArray(rows)) {
+    rows.forEach((row) => {
+      const id = Number(row?.id);
+      if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id)) {
+        return;
+      }
+      seen.add(id);
+      persons.push({ id, role: row.role });
+    });
+  }
+
+  if (
+    persons.length !== requestedIds.length ||
+    requestedIds.some((id) => !seen.has(Number(id)))
+  ) {
+    return null;
+  }
+
+  return persons;
+}
+
+/**
  *
  * @param { Request } request
  */
@@ -327,12 +364,8 @@ async function addBooking(request) {
         [[uniqueIds], CLUB_ID, booking_date, booking_date]
       );
 
-      if (
-        !(
-          Array.isArray(persons_result) &&
-          persons_result.length === uniqueIds.length
-        )
-      ) {
+      const persons = personsCoveringBookingDate(persons_result, uniqueIds);
+      if (!persons) {
         throw new RESTError(422, "Person(s) not found");
       }
 
@@ -419,7 +452,7 @@ async function addBooking(request) {
         type: request.body.type,
       };
 
-      initValues.players = persons_result.map((person) => ({
+      initValues.players = persons.map((person) => ({
         person_id: person.id,
         member_role_id: person.role,
         player_type_id: playerTypeMap.get(person.id),
@@ -719,5 +752,6 @@ module.exports = {
   getOverlappingBookings,
   getCourtAvailability,
   buildBookingListFilters,
+  personsCoveringBookingDate,
   suggestPlayerTypesForToday,
 };
