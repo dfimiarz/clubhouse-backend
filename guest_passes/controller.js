@@ -4,6 +4,7 @@ const { log, appLogLevels } = require("../utils/logger/logger");
 const club_id = process.env.CLUB_ID;
 //const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("../utils/RESTError");
+const { loadSettingsForPassType } = require("../guest-pass-types/settings");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -131,11 +132,17 @@ const addGuestPass = async (passinfo) => {
 
       //If there is an active pass, return pass info (no cache invalidation)
       if (active_pass) {
+        const settings = await loadSettingsForPassType(
+          connection,
+          active_pass.type,
+          { lock: true }
+        );
         return {
           id: active_pass.id,
           label: active_pass.label,
           type: active_pass.type,
           created: false,
+          settings,
         };
       }
 
@@ -186,11 +193,18 @@ const addGuestPass = async (passinfo) => {
         ]
       );
 
+      const settings = await loadSettingsForPassType(
+        connection,
+        passinfo.pass_type,
+        { lock: true }
+      );
+
       return {
         id: guest_pass_res.insertId,
         label: pass_type_label,
         type: passinfo.pass_type,
         created: true,
+        settings,
       };
     });
 
@@ -208,6 +222,7 @@ const addGuestPass = async (passinfo) => {
       id: result.id,
       label: result.label,
       type: result.type,
+      settings: result.settings,
     };
   } catch (err) {
     log(appLogLevels.ERROR, `Error activating guest pass: ${err.message}`);

@@ -1,6 +1,11 @@
 const sqlconnector = require("../db/SqlConnector");
 const RESTError = require("../utils/RESTError");
 const { resolveSettings } = require("../club/settings");
+const {
+    loadSettingsByPassType,
+    settingsForPassType,
+} = require("../guest-pass-types/settings");
+const { evaluatePassRules, earliestPlayAfter } = require("../guest-pass-types/rules");
 const { personIdsFromPlayers } = require("./playerOverlap");
 const { log, appLogLevels } = require("../utils/logger/logger");
 
@@ -23,7 +28,7 @@ const pass_requiring_players_q = `SELECT p.id, p.firstname, p.lastname
                                   LOCK IN SHARE MODE`;
 
 // date + start and guest_pass.valid_from/valid_to are club-local datetimes.
-const covering_guest_pass_q = `SELECT gp.guest_id
+const covering_guest_pass_q = `SELECT gp.guest_id, gp.type
                                FROM guest_pass gp
                                JOIN person p ON p.id = gp.guest_id
                                JOIN guest_pass_type gpt
@@ -69,6 +74,37 @@ function formatMissingGuestPassMessage(guests) {
             seen.add(id);
         }
         parts.push(`${personDisplayName(row)} does not have a valid guest pass.`);
+    });
+
+    return parts.join(" ");
+}
+
+/**
+ * One sentence per guest whose covering pass fails play_after.
+ *
+ * @param {Array<{ firstname?: string, lastname?: string, play_after?: string }>} guests
+ * @returns {string}
+ */
+function formatPlayAfterMessage(guests) {
+    if (!Array.isArray(guests) || guests.length === 0) {
+        return "A guest's guest pass does not allow play before this time.";
+    }
+
+    const seen = new Set();
+    const parts = [];
+
+    guests.forEach((row) => {
+        const id = Number(row.id ?? row.person_id);
+        if (Number.isSafeInteger(id) && seen.has(id)) {
+            return;
+        }
+        if (Number.isSafeInteger(id)) {
+            seen.add(id);
+        }
+        const clock = row.play_after || "this time";
+        parts.push(
+            `${personDisplayName(row)}'s guest pass does not allow play before ${clock}.`
+        );
     });
 
     return parts.join(" ");
@@ -130,13 +166,16 @@ async function findPassRequiringPlayers(connection, personIds, date) {
 }
 
 /**
+ * Date-window covering passes. Type is needed so play_after (and later rules)
+ * can be evaluated per pass.
+ *
  * @param {*} connection
  * @param {number[]} guestIds
  * @param {string} date
  * @param {string} start
- * @returns {Promise<number[]>}
+ * @returns {Promise<Array<{ guest_id: number, type: number|null }>>}
  */
-async function findGuestsWithCoveringPass(connection, guestIds, date, start) {
+async function findCoveringPasses(connection, guestIds, date, start) {
     const rows = await sqlconnector.runQuery(
         connection,
         covering_guest_pass_q,
@@ -147,19 +186,53 @@ async function findGuestsWithCoveringPass(connection, guestIds, date, start) {
         throw new Error("Unable to check guest passes");
     }
 
-    const seen = new Set();
-    const covered = [];
+    const covering = [];
 
     rows.forEach((row) => {
-        const id = Number(row.guest_id);
+        const guestId = Number(row.guest_id);
+        if (!Number.isSafeInteger(guestId) || guestId <= 0) {
+            return;
+        }
+        const typeId = Number(row.type);
+        covering.push({
+            guest_id: guestId,
+            type: Number.isSafeInteger(typeId) && typeId > 0 ? typeId : null,
+        });
+    });
+
+    return covering;
+}
+
+/**
+ * @param {Array<{ guest_id: number }>} covering
+ * @returns {number[]}
+ */
+function coveredGuestIds(covering) {
+    const seen = new Set();
+    const ids = [];
+
+    (Array.isArray(covering) ? covering : []).forEach((pass) => {
+        const id = Number(pass?.guest_id);
         if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id)) {
             return;
         }
         seen.add(id);
-        covered.push(id);
+        ids.push(id);
     });
 
-    return covered;
+    return ids;
+}
+
+/**
+ * @param {*} connection
+ * @param {number[]} guestIds
+ * @param {string} date
+ * @param {string} start
+ * @returns {Promise<number[]>}
+ */
+async function findGuestsWithCoveringPass(connection, guestIds, date, start) {
+    const covering = await findCoveringPasses(connection, guestIds, date, start);
+    return coveredGuestIds(covering);
 }
 
 /**
@@ -265,16 +338,55 @@ async function assertGuestsHaveValidPasses(connection, booking) {
         return;
     }
 
-    const coveredIds = await findGuestsWithCoveringPass(
+    const covering = await findCoveringPasses(
         connection,
         guests.map((guest) => guest.id),
         booking.date,
         booking.start
     );
 
-    const missing = guestsMissingCoveringPass(guests, coveredIds);
-    if (missing.length === 0) {
+    const missing = guestsMissingCoveringPass(guests, coveredGuestIds(covering));
+
+    const settingsByType = await loadSettingsByPassType(
+        connection,
+        covering.map((pass) => pass.type),
+        { lock: true }
+    );
+
+    const restricted = [];
+
+    guests.forEach((guest) => {
+        const passes = covering.filter((pass) => pass.guest_id === guest.id);
+        if (passes.length === 0) {
+            return;
+        }
+
+        const settingsList = passes.map((pass) =>
+            settingsForPassType(settingsByType, pass.type)
+        );
+        const allowed = settingsList.some(
+            (settings) => evaluatePassRules(settings, booking).ok
+        );
+        if (allowed) {
+            return;
+        }
+
+        restricted.push({
+            ...guest,
+            play_after: earliestPlayAfter(settingsList),
+        });
+    });
+
+    if (missing.length === 0 && restricted.length === 0) {
         return;
+    }
+
+    const parts = [];
+    if (missing.length > 0) {
+        parts.push(formatMissingGuestPassMessage(missing));
+    }
+    if (restricted.length > 0) {
+        parts.push(formatPlayAfterMessage(restricted));
     }
 
     log(
@@ -283,18 +395,21 @@ async function assertGuestsHaveValidPasses(connection, booking) {
             booking_date: booking.date,
             booking_start: booking.start,
             guest_ids: missing.map((guest) => guest.id),
+            restricted_ids: restricted.map((guest) => guest.id),
         })}`
     );
 
-    throw new RESTError(422, formatMissingGuestPassMessage(missing));
+    throw new RESTError(422, parts.join(" "));
 }
 
 module.exports = {
     SETTING_KEY,
     formatMissingGuestPassMessage,
+    formatPlayAfterMessage,
     guestsMissingCoveringPass,
     guestsAreUnaccompanied,
     findPassRequiringPlayers,
+    findCoveringPasses,
     findGuestsWithCoveringPass,
     isGuestsAccompaniedByMemberRequired,
     assertGuestsAccompaniedByMember,

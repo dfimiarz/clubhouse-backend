@@ -101,6 +101,21 @@ describe("club settings registry", function () {
       expect(coerce({ type: "string", default: "x" }, " hi ")).to.equal("hi");
     });
 
+    it("normalizes clock times to HH:mm", function () {
+      const definition = { type: "time", default: null };
+      expect(coerce(definition, "12:00")).to.equal("12:00");
+      expect(coerce(definition, "9:00")).to.equal("09:00");
+      expect(coerce(definition, " 8:30 ")).to.equal("08:30");
+      expect(coerce(definition, "12:00:00")).to.equal("12:00");
+    });
+
+    it("returns the default for an unreadable time", function () {
+      const definition = { type: "time", default: null };
+      ["noon", "24:00", "12:60", "12", ""].forEach((raw) => {
+        expect(coerce(definition, raw), raw).to.equal(null);
+      });
+    });
+
     it("returns the default for an unknown type", function () {
       expect(coerce({ type: "json", default: null }, "{}")).to.equal(null);
     });

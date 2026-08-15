@@ -7,6 +7,10 @@ const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("./../utils/RESTError");
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../utils/utils");
+const {
+  loadSettingsByPassType,
+  settingsForPassType,
+} = require("../guest-pass-types/settings");
 
 const SEARCH_RESULT_LIMIT = 20;
 
@@ -50,9 +54,19 @@ async function fetchActivePersonsFromDB() {
       [club_id]
     );
 
+    const settingsByType = await loadSettingsByPassType(
+      connection,
+      active_passes.map((pass) => pass.type)
+    );
+
     //Create a hash map with key being guest_id and values being pass_id, type, and label
     const active_passes_hash = active_passes.reduce((acc, val) => {
-      acc[val.guest_id] = { id: val.id, type: val.type, label: val.label };
+      acc[val.guest_id] = {
+        id: val.id,
+        type: val.type,
+        label: val.label,
+        settings: settingsForPassType(settingsByType, val.type),
+      };
       return acc;
     }, {});
 

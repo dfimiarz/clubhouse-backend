@@ -7,6 +7,7 @@ import RESTError from "../../utils/RESTError.js";
 const {
   SETTING_KEY,
   formatMissingGuestPassMessage,
+  formatPlayAfterMessage,
   guestsMissingCoveringPass,
   guestsAreUnaccompanied,
   assertGuestsAccompaniedByMember,
@@ -37,6 +38,23 @@ describe("formatMissingGuestPassMessage", () => {
   it("falls back when the list is empty", () => {
     expect(formatMissingGuestPassMessage([])).to.equal(
       "A guest does not have a valid guest pass."
+    );
+  });
+});
+
+describe("formatPlayAfterMessage", () => {
+  it("names each guest once with the earliest play_after", () => {
+    expect(
+      formatPlayAfterMessage([
+        { id: 1, firstname: "Jane", lastname: "Doe", play_after: "12:00" },
+        { id: 1, firstname: "Jane", lastname: "Doe", play_after: "12:00" },
+      ])
+    ).to.equal("Jane Doe's guest pass does not allow play before 12:00.");
+  });
+
+  it("falls back when the list is empty", () => {
+    expect(formatPlayAfterMessage([])).to.equal(
+      "A guest's guest pass does not allow play before this time."
     );
   });
 });
@@ -226,6 +244,93 @@ describe("assertGuestsHaveValidPasses", () => {
       {
         date: "2026-08-14",
         start: "09:00",
+        players: [{ person_id: 10 }],
+      }
+    );
+  });
+
+  it("accepts a guest whose pass covers the start at play_after", async () => {
+    sqlconnector.runQuery = async (_connection, query) => {
+      if (query.includes("requires_pass")) {
+        return [{ id: 10, firstname: "Jane", lastname: "Doe" }];
+      }
+      if (query.includes("guest_pass_type_setting")) {
+        return [{ pass_type: 2, setting_key: "play_after", setting_value: "12:00" }];
+      }
+      if (query.includes("guest_pass")) {
+        return [{ guest_id: 10, type: 2 }];
+      }
+      throw new Error(`unexpected query: ${query}`);
+    };
+
+    await assertGuestsHaveValidPasses(
+      {},
+      {
+        date: "2026-08-14",
+        start: "12:00",
+        players: [{ person_id: 10 }],
+      }
+    );
+  });
+
+  it("rejects a guest whose covering pass does not allow the start", async () => {
+    sqlconnector.runQuery = async (_connection, query) => {
+      if (query.includes("requires_pass")) {
+        return [{ id: 10, firstname: "Jane", lastname: "Doe" }];
+      }
+      if (query.includes("guest_pass_type_setting")) {
+        return [{ pass_type: 2, setting_key: "play_after", setting_value: "12:00" }];
+      }
+      if (query.includes("guest_pass")) {
+        return [{ guest_id: 10, type: 2 }];
+      }
+      throw new Error(`unexpected query: ${query}`);
+    };
+
+    try {
+      await assertGuestsHaveValidPasses(
+        {},
+        {
+          date: "2026-08-14",
+          start: "09:00",
+          players: [{ person_id: 10 }],
+        }
+      );
+      expect.fail("expected RESTError");
+    } catch (error) {
+      expect(error).to.be.instanceOf(RESTError);
+      expect(error.status).to.equal(422);
+      expect(error.payload).to.equal(
+        "Jane Doe's guest pass does not allow play before 12:00."
+      );
+    }
+  });
+
+  it("accepts a guest when one of two covering types allows the start", async () => {
+    sqlconnector.runQuery = async (_connection, query) => {
+      if (query.includes("requires_pass")) {
+        return [{ id: 10, firstname: "Jane", lastname: "Doe" }];
+      }
+      if (query.includes("guest_pass_type_setting")) {
+        return [
+          { pass_type: 2, setting_key: "play_after", setting_value: "14:00" },
+          { pass_type: 3, setting_key: "play_after", setting_value: "09:00" },
+        ];
+      }
+      if (query.includes("guest_pass")) {
+        return [
+          { guest_id: 10, type: 2 },
+          { guest_id: 10, type: 3 },
+        ];
+      }
+      throw new Error(`unexpected query: ${query}`);
+    };
+
+    await assertGuestsHaveValidPasses(
+      {},
+      {
+        date: "2026-08-14",
+        start: "10:00",
         players: [{ person_id: 10 }],
       }
     );

@@ -46,6 +46,50 @@ to take effect.
 
 There is no write endpoint or admin UI yet — values are changed with SQL.
 
+## Guest pass type settings
+
+Per-type booking rules live in the same two-layer shape as club settings:
+
+- **`guest-pass-types/settings.js`** — the registry. Declares every known key
+  with its type and default. Defaults live here, next to the evaluator in
+  `guest-pass-types/rules.js`.
+- **`guest_pass_type_setting`** (table) — overrides only, as `(pass_type,
+  setting_key, setting_value)` strings. A type with no row for a key gets the
+  registry default (unrestricted), and rows for keys that are not in the
+  registry are ignored.
+
+Adding a rule costs one registry entry, one evaluator, and no migration.
+
+`GET /guest-pass-types`, `GET /persons/active` (`person.pass.settings`), and
+`POST /guest_passes` all return the resolved `settings` object. Create and
+move still evaluate the rules against the live table, not the Redis
+active-persons cache (60s TTL).
+
+### Changing a setting for a pass type
+
+```sql
+INSERT INTO guest_pass_type_setting (pass_type, setting_key, setting_value)
+VALUES (2, 'play_after', '12:00')
+ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
+```
+
+To put a type back on the default, delete its row.
+
+Times accept `HH:mm` or `HH:mm:ss` and are stored/compared as `HH:mm`. A value
+the declared type cannot read falls back to the default (`null` = no
+restriction). Booking create/move walks every registered rule on each
+date-covering pass and accepts the guest when **any** of those passes satisfies
+**all** of its rules. `play_after` compares the club-local session **start**
+only, inclusive.
+
+### Current settings
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `play_after` | time | `null` | Guest may start a session at or after this club-local time. Opt in per pass type with `'HH:mm'` |
+
+There is no write endpoint or admin UI yet — values are changed with SQL.
+
 ## Product analytics
 
 Feature usage is recorded as events in the `app_event` table and read back

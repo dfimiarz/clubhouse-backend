@@ -171,6 +171,7 @@ describe("getActivePersons controller", () => {
   let released;
   let memberRows;
   let passRows;
+  let settingRows;
   let cachedList;
   let stored;
 
@@ -179,6 +180,7 @@ describe("getActivePersons controller", () => {
     released = false;
     memberRows = [];
     passRows = [];
+    settingRows = [];
     cachedList = null; // default: cache miss, fall back to the DB
     stored = undefined;
 
@@ -202,6 +204,9 @@ describe("getActivePersons controller", () => {
     // silently broke these tests during the mysql2 migration.
     const record = async (_connection, query, values) => {
       queries.push({ query, values });
+      if (query.includes("guest_pass_type_setting")) {
+        return settingRows;
+      }
       return query.includes("guest_pass") ? passRows : memberRows;
     };
     sqlconnector.runQuery = record;
@@ -255,9 +260,22 @@ describe("getActivePersons controller", () => {
         id: 71,
         type: 2,
         label: "Season Pass",
+        settings: { play_after: null },
       });
       expect(persons[1].pass).to.equal(undefined);
       expect(persons[2].pass).to.equal(undefined);
+    });
+
+    it("attaches resolved pass-type settings to the active pass", async () => {
+      memberRows = [{ id: 1, requires_pass: 1 }];
+      passRows = [{ id: 71, guest_id: 1, type: 2, label: "Season Pass" }];
+      settingRows = [
+        { pass_type: 2, setting_key: "play_after", setting_value: "12:00" },
+      ];
+
+      const persons = await personsController.getActivePersons();
+
+      expect(persons[0].pass.settings).to.deep.equal({ play_after: "12:00" });
     });
 
     it("releases the connection when a query fails", async () => {
