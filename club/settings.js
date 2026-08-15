@@ -26,11 +26,12 @@ const SETTINGS = {
         public: true,
         label: "Show back-to-back rebooking prompt",
     },
-    // Opt-in: when on, a person cannot sit on two member-group sessions
+    // On by default: a person cannot sit on two member-group sessions
     // (activity_group = 1) at the same time. Club sessions are unaffected.
+    // Opt out per club with '0'.
     prevent_concurrent_member_bookings: {
         type: "boolean",
-        default: false,
+        default: true,
         public: true,
         label: "Prevent overlapping member bookings for the same player",
     },

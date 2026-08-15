@@ -118,7 +118,7 @@ describe("club settings registry", function () {
     it("resolves to the prompt being disabled with no overrides", function () {
       expect(resolveSettings([])).to.deep.equal({
         rebooking_prompt_enabled: false,
-        prevent_concurrent_member_bookings: false,
+        prevent_concurrent_member_bookings: true,
         require_guests_accompanied_by_member: true,
       });
     });
@@ -130,19 +130,19 @@ describe("club settings registry", function () {
       expect(resolved.rebooking_prompt_enabled).to.equal(true);
     });
 
-    it("declares prevent_concurrent_member_bookings as a public boolean defaulting to off", function () {
+    it("declares prevent_concurrent_member_bookings as a public boolean defaulting to on", function () {
       expect(SETTINGS.prevent_concurrent_member_bookings).to.include({
         type: "boolean",
-        default: false,
+        default: true,
         public: true,
       });
     });
 
-    it("enables concurrent-member blocking for a club that opted in", function () {
+    it("disables concurrent-member blocking for a club that opted out", function () {
       const resolved = resolveSettings([
-        { setting_key: "prevent_concurrent_member_bookings", setting_value: "1" },
+        { setting_key: "prevent_concurrent_member_bookings", setting_value: "0" },
       ]);
-      expect(resolved.prevent_concurrent_member_bookings).to.equal(true);
+      expect(resolved.prevent_concurrent_member_bookings).to.equal(false);
     });
 
     it("declares require_guests_accompanied_by_member as a public boolean defaulting to on", function () {
