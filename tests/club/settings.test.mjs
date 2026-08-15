@@ -119,6 +119,7 @@ describe("club settings registry", function () {
       expect(resolveSettings([])).to.deep.equal({
         rebooking_prompt_enabled: false,
         prevent_concurrent_member_bookings: false,
+        require_guests_accompanied_by_member: true,
       });
     });
 
@@ -142,6 +143,21 @@ describe("club settings registry", function () {
         { setting_key: "prevent_concurrent_member_bookings", setting_value: "1" },
       ]);
       expect(resolved.prevent_concurrent_member_bookings).to.equal(true);
+    });
+
+    it("declares require_guests_accompanied_by_member as a public boolean defaulting to on", function () {
+      expect(SETTINGS.require_guests_accompanied_by_member).to.include({
+        type: "boolean",
+        default: true,
+        public: true,
+      });
+    });
+
+    it("disables guest accompaniment for a club that opted out", function () {
+      const resolved = resolveSettings([
+        { setting_key: "require_guests_accompanied_by_member", setting_value: "0" },
+      ]);
+      expect(resolved.require_guests_accompanied_by_member).to.equal(false);
     });
   });
 });

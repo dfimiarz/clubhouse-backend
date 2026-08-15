@@ -5,6 +5,7 @@ import sqlconnector from "../../db/SqlConnector.js";
 import RESTError from "../../utils/RESTError.js";
 
 const {
+  SETTING_KEY,
   formatMissingGuestPassMessage,
   guestsMissingCoveringPass,
   guestsAreUnaccompanied,
@@ -86,6 +87,24 @@ describe("assertGuestsAccompaniedByMember", () => {
     sqlconnector.runQuery = originalRunQuery;
   });
 
+  /**
+   * @param {{ settingValue?: string, guests?: Array }} opts
+   */
+  function mockQueries({ settingValue, guests = [] } = {}) {
+    sqlconnector.runQuery = async (_connection, query) => {
+      if (query.includes("club_setting")) {
+        if (settingValue === undefined) {
+          return [];
+        }
+        return [{ setting_key: SETTING_KEY, setting_value: settingValue }];
+      }
+      if (query.includes("requires_pass")) {
+        return guests;
+      }
+      throw new Error(`unexpected query: ${query}`);
+    };
+  }
+
   it("does not query when the roster is empty", async () => {
     let called = false;
     sqlconnector.runQuery = async () => {
@@ -97,10 +116,31 @@ describe("assertGuestsAccompaniedByMember", () => {
     expect(called).to.equal(false);
   });
 
-  it("accepts a guest booked with a member", async () => {
-    sqlconnector.runQuery = async () => [
-      { id: 10, firstname: "Jane", lastname: "Doe" },
-    ];
+  it("skips the check when the club flag is off", async () => {
+    const queries = [];
+    sqlconnector.runQuery = async (_connection, query) => {
+      queries.push(query);
+      if (query.includes("club_setting")) {
+        return [{ setting_key: SETTING_KEY, setting_value: "0" }];
+      }
+      throw new Error("should not query guests when the flag is off");
+    };
+
+    await assertGuestsAccompaniedByMember(
+      {},
+      {
+        date: "2026-08-14",
+        players: [{ person_id: 10 }],
+      }
+    );
+
+    expect(queries).to.have.length(1);
+  });
+
+  it("accepts a guest booked with a member when the flag is on", async () => {
+    mockQueries({
+      guests: [{ id: 10, firstname: "Jane", lastname: "Doe" }],
+    });
 
     await assertGuestsAccompaniedByMember(
       {},
@@ -111,10 +151,10 @@ describe("assertGuestsAccompaniedByMember", () => {
     );
   });
 
-  it("rejects a guest-only roster", async () => {
-    sqlconnector.runQuery = async () => [
-      { id: 10, firstname: "Jane", lastname: "Doe" },
-    ];
+  it("rejects a guest-only roster when the flag is on by default", async () => {
+    mockQueries({
+      guests: [{ id: 10, firstname: "Jane", lastname: "Doe" }],
+    });
 
     try {
       await assertGuestsAccompaniedByMember(

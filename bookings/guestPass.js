@@ -1,9 +1,12 @@
 const sqlconnector = require("../db/SqlConnector");
 const RESTError = require("../utils/RESTError");
+const { resolveSettings } = require("../club/settings");
 const { personIdsFromPlayers } = require("./playerOverlap");
 const { log, appLogLevels } = require("../utils/logger/logger");
 
 const CLUB_ID = process.env.CLUB_ID;
+
+const SETTING_KEY = "require_guests_accompanied_by_member";
 
 // Membership covering the booking date whose role requires a guest pass.
 const pass_requiring_players_q = `SELECT p.id, p.firstname, p.lastname
@@ -178,8 +181,31 @@ function guestsAreUnaccompanied(personIds, guests) {
 }
 
 /**
- * Reject a guest-only roster. Any non-guest member (or instructor/manager)
- * is enough; they do not need guest_host.
+ * Read the club flag from `club_setting` on this connection (not Redis).
+ *
+ * @param {*} connection
+ * @returns {Promise<boolean>}
+ */
+async function isGuestsAccompaniedByMemberRequired(connection) {
+    const rows = await sqlconnector.runQuery(
+        connection,
+        `SELECT setting_key, setting_value
+         FROM club_setting
+         WHERE club = ?
+           AND setting_key = ?`,
+        [CLUB_ID, SETTING_KEY]
+    );
+
+    const resolved = resolveSettings(Array.isArray(rows) ? rows : [], {
+        publicOnly: false,
+    });
+
+    return resolved[SETTING_KEY] === true;
+}
+
+/**
+ * Reject a guest-only roster when the club flag is on. Any non-guest member
+ * (or instructor/manager) is enough; they do not need guest_host.
  *
  * @param {*} connection
  * @param {{ date: string, players?: Array }} booking
@@ -187,6 +213,11 @@ function guestsAreUnaccompanied(personIds, guests) {
 async function assertGuestsAccompaniedByMember(connection, booking) {
     const personIds = personIdsFromPlayers(booking?.players);
     if (personIds.length === 0) {
+        return;
+    }
+
+    const settingEnabled = await isGuestsAccompaniedByMemberRequired(connection);
+    if (settingEnabled !== true) {
         return;
     }
 
@@ -259,11 +290,13 @@ async function assertGuestsHaveValidPasses(connection, booking) {
 }
 
 module.exports = {
+    SETTING_KEY,
     formatMissingGuestPassMessage,
     guestsMissingCoveringPass,
     guestsAreUnaccompanied,
     findPassRequiringPlayers,
     findGuestsWithCoveringPass,
+    isGuestsAccompaniedByMemberRequired,
     assertGuestsAccompaniedByMember,
     assertGuestsHaveValidPasses,
 };

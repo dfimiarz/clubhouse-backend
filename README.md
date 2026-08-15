@@ -42,6 +42,7 @@ to take effect.
 | --- | --- | --- | --- |
 | `rebooking_prompt_enabled` | boolean | `false` | Show the back-to-back rebooking prompt in the match booking flow. Opt-in: set to `'1'` per club. Does **not** gate Fast rebook on Booking Details |
 | `prevent_concurrent_member_bookings` | boolean | `false` | Reject a member activity (`activity_group = 1`) when any roster player already has an overlapping member session on another court. Club sessions are not checked. Seeded to `'1'` for existing clubs by migration `0012` |
+| `require_guests_accompanied_by_member` | boolean | `true` | Reject a guest-only roster (including a solo guest). Any non-guest member, instructor, or manager is enough. Seeded to `'1'` for existing clubs by migration `0013`. Opt out per club with `'0'` |
 
 There is no write endpoint or admin UI yet — values are changed with SQL.
 

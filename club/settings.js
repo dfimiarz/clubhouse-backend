@@ -34,6 +34,13 @@ const SETTINGS = {
         public: true,
         label: "Prevent overlapping member bookings for the same player",
     },
+    // On by default: a guest-only roster is rejected unless the club opts out.
+    require_guests_accompanied_by_member: {
+        type: "boolean",
+        default: true,
+        public: true,
+        label: "Require a member on bookings that include a guest",
+    },
 };
 
 /**
