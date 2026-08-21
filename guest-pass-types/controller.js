@@ -3,7 +3,7 @@ const club_id = process.env.CLUB_ID;
 const RESTError = require("../utils/RESTError");
 const {
   loadClubPassTypeSettings,
-  settingsForPassType,
+  rulesForPassType,
 } = require("./settings");
 
 /**
@@ -51,7 +51,7 @@ const getPassTypes = async () => {
         valid: pass_type.valid_days,
         limit: pass_type.season_limit,
         cost: pass_type.cost,
-        settings: settingsForPassType(settingsByType, pass_type.id),
+        ...rulesForPassType(settingsByType, pass_type.id),
       };
     });
   });

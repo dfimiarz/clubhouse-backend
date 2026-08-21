@@ -7,6 +7,9 @@ const {
   resolvePassTypeSettings,
   resolveSettingsByPassType,
   settingsForPassType,
+  constraintsFromSettings,
+  passTypeRules,
+  rulesForPassType,
 } = settingsModule;
 
 describe("guest pass type settings", function () {
@@ -47,5 +50,43 @@ describe("guest pass type settings", function () {
     expect(settingsForPassType(byType, 2).play_after).to.equal("12:00");
     expect(settingsForPassType(byType, 3).play_after).to.equal("14:00");
     expect(settingsForPassType(byType, 9).play_after).to.equal(null);
+  });
+
+  it("omits constraints when every rule is unrestricted", function () {
+    expect(constraintsFromSettings(resolvePassTypeSettings([]))).to.deep.equal(
+      []
+    );
+    expect(passTypeRules(resolvePassTypeSettings([])).constraints).to.deep.equal(
+      []
+    );
+  });
+
+  it("labels an active play_after for display", function () {
+    expect(
+      constraintsFromSettings({ play_after: "12:00" })
+    ).to.deep.equal([
+      { key: "play_after", text: "Play at or after 12:00" },
+    ]);
+  });
+
+  it("does not label a null or missing play_after", function () {
+    expect(constraintsFromSettings({ play_after: null })).to.deep.equal([]);
+    expect(constraintsFromSettings({})).to.deep.equal([]);
+    expect(constraintsFromSettings(undefined)).to.deep.equal([]);
+  });
+
+  it("attaches settings and constraints for a type", function () {
+    const byType = resolveSettingsByPassType([
+      { pass_type: 2, setting_key: "play_after", setting_value: "12:00" },
+    ]);
+
+    expect(rulesForPassType(byType, 2)).to.deep.equal({
+      settings: { play_after: "12:00" },
+      constraints: [{ key: "play_after", text: "Play at or after 12:00" }],
+    });
+    expect(rulesForPassType(byType, 9)).to.deep.equal({
+      settings: { play_after: null },
+      constraints: [],
+    });
   });
 });

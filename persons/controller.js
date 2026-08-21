@@ -9,7 +9,7 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../utils/utils");
 const {
   loadSettingsByPassType,
-  settingsForPassType,
+  rulesForPassType,
 } = require("../guest-pass-types/settings");
 
 const SEARCH_RESULT_LIMIT = 20;
@@ -65,7 +65,7 @@ async function fetchActivePersonsFromDB() {
         id: val.id,
         type: val.type,
         label: val.label,
-        settings: settingsForPassType(settingsByType, val.type),
+        ...rulesForPassType(settingsByType, val.type),
       };
       return acc;
     }, {});

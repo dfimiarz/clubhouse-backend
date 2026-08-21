@@ -60,10 +60,13 @@ Per-type booking rules live in the same two-layer shape as club settings:
 
 Adding a rule costs one registry entry, one evaluator, and no migration.
 
-`GET /guest-pass-types`, `GET /persons/active` (`person.pass.settings`), and
-`POST /guest_passes` all return the resolved `settings` object. Create and
-move still evaluate the rules against the live table, not the Redis
-active-persons cache (60s TTL).
+`GET /guest-pass-types`, `GET /persons/active` (`person.pass`), and
+`POST /guest_passes` all return the resolved `settings` object and a
+`constraints` array of `{ key, text }` for every non-default rule. The
+roster card shows a Restricted chip plus those texts; the buy dialog
+lists the sentences under the selected type. Create and move still evaluate
+the rules against the live table, not the Redis active-persons cache
+(60s TTL).
 
 ### Changing a setting for a pass type
 

@@ -75,6 +75,72 @@ function resolvePassTypeSettings(rows) {
 }
 
 /**
+ * @param {string} key
+ * @param {{ type?: string, default?: unknown, label?: string }} definition
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function formatConstraintText(key, definition, value) {
+    if (value === undefined || value === null || Object.is(value, definition.default)) {
+        return null;
+    }
+
+    const label =
+        typeof definition.label === "string" && definition.label.trim()
+            ? definition.label.trim()
+            : key;
+
+    switch (definition.type) {
+        case "boolean":
+            return value ? label : null;
+        case "time":
+        case "int":
+        case "string":
+            return `${label} ${value}`;
+        default:
+            return `${label} ${value}`;
+    }
+}
+
+/**
+ * Display rows for every resolved value that is not the unrestricted default.
+ *
+ * @param {object|null|undefined} resolved
+ * @returns {Array<{ key: string, text: string }>}
+ */
+function constraintsFromSettings(resolved) {
+    const settings = resolved && typeof resolved === "object" ? resolved : {};
+    const constraints = [];
+
+    Object.entries(SETTINGS).forEach(([key, definition]) => {
+        const text = formatConstraintText(key, definition, settings[key]);
+        if (text) {
+            constraints.push({ key, text });
+        }
+    });
+
+    return constraints;
+}
+
+/**
+ * Payload the app uses to label a type: raw settings plus display rows.
+ *
+ * @param {object|null|undefined} resolved
+ * @returns {{ settings: object, constraints: Array<{ key: string, text: string }> }}
+ */
+function passTypeRules(resolved) {
+    const settings =
+        resolved && typeof resolved === "object" && !Array.isArray(resolved)
+            ? resolved
+            : resolvePassTypeSettings([]);
+
+    return {
+        settings,
+        constraints: constraintsFromSettings(settings),
+    };
+}
+
+/**
  * @param {Array<{pass_type?: unknown, setting_key: string, setting_value: string}>} rows
  * @returns {Map<number, object>}
  */
@@ -110,6 +176,15 @@ function settingsForPassType(settingsByType, typeId) {
         return settingsByType.get(id);
     }
     return resolvePassTypeSettings([]);
+}
+
+/**
+ * @param {Map<number, object>|null|undefined} settingsByType
+ * @param {unknown} typeId
+ * @returns {{ settings: object, constraints: Array<{ key: string, text: string }> }}
+ */
+function rulesForPassType(settingsByType, typeId) {
+    return passTypeRules(settingsForPassType(settingsByType, typeId));
 }
 
 /**
@@ -179,6 +254,9 @@ module.exports = {
     resolvePassTypeSettings,
     resolveSettingsByPassType,
     settingsForPassType,
+    constraintsFromSettings,
+    passTypeRules,
+    rulesForPassType,
     loadSettingsByPassType,
     loadSettingsForPassType,
     loadClubPassTypeSettings,

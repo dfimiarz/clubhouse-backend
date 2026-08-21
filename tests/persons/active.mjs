@@ -261,6 +261,7 @@ describe("getActivePersons controller", () => {
         type: 2,
         label: "Season Pass",
         settings: { play_after: null },
+        constraints: [],
       });
       expect(persons[1].pass).to.equal(undefined);
       expect(persons[2].pass).to.equal(undefined);
@@ -276,6 +277,9 @@ describe("getActivePersons controller", () => {
       const persons = await personsController.getActivePersons();
 
       expect(persons[0].pass.settings).to.deep.equal({ play_after: "12:00" });
+      expect(persons[0].pass.constraints).to.deep.equal([
+        { key: "play_after", text: "Play at or after 12:00" },
+      ]);
     });
 
     it("releases the connection when a query fails", async () => {
