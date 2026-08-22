@@ -18,9 +18,7 @@ router.get("/", authGuard, (_req, res, next) => {
       res.json(result);
     })
     .catch((err) => {
-      next(
-        err instanceof RESTError ? err : new RESTError(400, "Operation failed")
-      );
+      next(err instanceof RESTError ? err : new RESTError(500, "Operation failed"));
     });
 });
 

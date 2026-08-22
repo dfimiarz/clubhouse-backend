@@ -6,7 +6,7 @@ import personsRouter from "../../persons/api.js";
 import personsController from "../../persons/controller.js";
 import authController from "../../auth/controller.js";
 import clientAuth from "../../middleware/clientauth.js";
-import RESTError from "../../utils/RESTError.js";
+import errorHandler from "../../utils/errorHandler.js";
 
 const { getGeoAuthState } = clientAuth;
 
@@ -23,14 +23,7 @@ function createApp({ userauth = false, geoauth = false } = {}) {
     next();
   });
   app.use("/persons", personsRouter);
-  app.use((err, _req, res, _next) => {
-    if (err instanceof RESTError) {
-      res.status(err.status).json(err.payload);
-      return;
-    }
-
-    res.status(err.status || 500).json(err.message || "Something went wrong");
-  });
+  app.use(errorHandler);
 
   return app;
 }

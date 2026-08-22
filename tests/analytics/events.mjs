@@ -5,7 +5,7 @@ import request from "supertest";
 import analyticsRouter from "../../analytics/api.js";
 import analyticsController from "../../analytics/controller.js";
 import eventTypes from "../../analytics/eventTypes.js";
-import RESTError from "../../utils/RESTError.js";
+import errorHandler from "../../utils/errorHandler.js";
 
 const { getEventNames, getEventDefinition } = eventTypes;
 const originalRecordEvent = analyticsController.recordEvent;
@@ -26,14 +26,7 @@ function createApp({ authenticated = true } = {}) {
     next();
   });
   app.use("/events", analyticsRouter);
-  app.use((err, _req, res, _next) => {
-    if (err instanceof RESTError) {
-      res.status(err.status).json(err.payload);
-      return;
-    }
-
-    res.status(err.status || 500).json(err.message || "Something went wrong");
-  });
+  app.use(errorHandler);
 
   return app;
 }

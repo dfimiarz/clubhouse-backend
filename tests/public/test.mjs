@@ -5,6 +5,7 @@ import request from "supertest";
 import publicRouter from "../../public/api.js";
 import publicController from "../../public/controller.js";
 import bookingsRouter from "../../bookings/api.js";
+import errorHandler from "../../utils/errorHandler.js";
 import RESTError from "../../utils/RESTError.js";
 
 const originalGetPublicCourts = publicController.getPublicCourts;
@@ -15,14 +16,7 @@ function createPublicApp() {
   const app = express();
   app.use(express.json());
   app.use("/public", publicRouter);
-  app.use((err, _req, res, _next) => {
-    if (err instanceof RESTError) {
-      res.status(err.status).json(err.payload);
-      return;
-    }
-
-    res.status(err.status || 500).json(err.message || "Something went wrong");
-  });
+  app.use(errorHandler);
 
   return app;
 }
@@ -36,14 +30,7 @@ function createProtectedBookingsApp() {
     next();
   });
   app.use("/bookings", bookingsRouter);
-  app.use((err, _req, res, _next) => {
-    if (err instanceof RESTError) {
-      res.status(err.status).json(err.payload);
-      return;
-    }
-
-    res.status(err.status || 500).json(err.message || "Something went wrong");
-  });
+  app.use(errorHandler);
 
   return app;
 }

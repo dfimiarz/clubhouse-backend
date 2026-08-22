@@ -1,11 +1,12 @@
 const { getReportProcessor } = require('./reportTypes');
+const RESTError = require('../utils/RESTError');
 
 async function runProcessor(name, from, to) {
     const processor = getReportProcessor(name);
     if (processor && typeof processor === 'function') {
         return await processor(name, from, to);
     } else {
-        throw new Error(`Invalid report type: ${name}`)
+        throw new RESTError(400, "Invalid report type");
     }
 }
 

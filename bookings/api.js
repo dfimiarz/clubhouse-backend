@@ -7,7 +7,6 @@ const { checkBookingPermissions, validatePatchRequest, validateBatchInsertReques
 const { authGuard } = require('../middleware/clientauth')
 const pusher = require('./../pusher/Pusher')
 const { log, appLogLevels } = require('./../utils/logger/logger');
-const RESTError = require('./../utils/RESTError')
 
 
 const router = express.Router();
@@ -145,7 +144,7 @@ router.get('/session-rules', authGuard, validate(
           try {
                res.json(resolveSessionRules(req.query.player_types))
           } catch (err) {
-               next(err instanceof RESTError ? err : new RESTError(422, err.message))
+               next(err)
           }
      }
 );

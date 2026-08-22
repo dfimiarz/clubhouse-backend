@@ -3,8 +3,6 @@ const { z } = require('zod');
 const { validate, iso8601 } = require('./../utils/validate');
 const activities_ctrl = require('./controller');
 const { authGuard } = require('../middleware/clientauth');
-const RESTError = require('./../utils/RESTError');
-const { log, appLogLevels } = require('./../utils/logger/logger');
 const { validateDateRange } = require('./../utils/DateRangeValidator');
 const { getClubInfo } = require('../club/controller');
 
@@ -44,8 +42,7 @@ router.get('/', authGuard, validate(
         res.json(result);
 
     } catch (err) {
-        log(appLogLevels.ERROR, err);
-        next(new RESTError(400, err.message));
+        next(err);
     }
 });
 

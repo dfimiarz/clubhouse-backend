@@ -40,7 +40,7 @@ function _getError(opcode,sqlerr){
         if(Object.prototype.hasOwnProperty.call(opcodeErrs, sqlerr.errno)){
             return new RESTError(opcodeErrs[sqlerr.errno].code,opcodeErrs[sqlerr.errno].msg);
         }else{
-            return new RESTError(500,`Unknown ${opcode} error`);
+            return new RESTError(500);
         }
 
     }

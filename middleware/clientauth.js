@@ -50,7 +50,7 @@ async function checkUserRole(req, res, next) {
         }
     } catch (err) {
         log(appLogLevels.ERROR, `User role error: ${err.message} `);
-        next(new Error(`Unable to verify user role: ${err.message}`));
+        next(err);
     }
 }
 
@@ -79,7 +79,7 @@ async function checkUserAuth(req, res, next) {
         }
         catch (err) {
             log(appLogLevels.ERROR, `User token error: ${err}`)
-            next(new Error("Unable to verify auth token"));
+            next(new RESTError(401, "Unable to verify auth token"));
         }
     }
     else {

@@ -3,6 +3,7 @@ const { getSchema, getSupportedCommands } = require("./command");
 const { checkPermission } = require("./permissions/BookingPermissions");
 const { validateBatchInsertData, formatErrorsForLogging } = require("../utils/JSONvalidator");
 const { log, appLogLevels } = require('./../utils/logger/logger');
+const RESTError = require("../utils/RESTError");
 
 
 function checkBookingPermissions(req, res, next) {
@@ -31,14 +32,14 @@ function checkBookingPermissions(req, res, next) {
  * @param {Response} _res
  * @param {NextFunction} next
  */
-function validateBatchInsertRequest(req, res, next) {
+function validateBatchInsertRequest(req, _res, next) {
 
   const valid = validateBatchInsertData(req.body);
 
   if (!valid) {
     //Get all errors and extract instance path and messages into separate array of objects
     log(appLogLevels.ERROR, formatErrorsForLogging(validateBatchInsertData.errors, "Unable to validate batch data"));
-    return res.status(400).send("Unable to validate batch data");
+    return next(new RESTError(400, "Unable to validate batch data"));
   }
   next();
 }
@@ -47,25 +48,25 @@ function validatePatchRequest(req, res, next) {
   const id = req.params.id ? req.params.id : null;
 
   if (id == null) {
-    return next(new Error("Booking ID missing"));
+    return next(new RESTError(422, "Booking ID missing"));
   }
 
   const cmd = req.body.cmd ? req.body.cmd : null;
 
   if (cmd == null) {
-    return next(new Error("Command missing"));
+    return next(new RESTError(422, "Command missing"));
   }
 
   let cmd_errors = validateCommand(cmd);
 
   if (cmd_errors.length !== 0) {
-    return next(new Error("Incorrect command"));
+    return next(new RESTError(422, "Incorrect command"));
   }
 
   let param_errors = validateCommandParams(cmd);
 
   if (param_errors.length !== 0) {
-    return next(new Error("Incorrect command params"));
+    return next(new RESTError(422, "Incorrect command params"));
   }
 
   res.locals.cmd = cmd;

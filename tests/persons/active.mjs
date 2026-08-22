@@ -6,7 +6,7 @@ import personsRouter from "../../persons/api.js";
 import personsController from "../../persons/controller.js";
 import sqlconnector from "../../db/SqlConnector.js";
 import redisconnector from "../../db/RedisConnector.js";
-import RESTError from "../../utils/RESTError.js";
+import errorHandler from "../../utils/errorHandler.js";
 
 const originalGetActivePersons = personsController.getActivePersons;
 const originalGetConnection = sqlconnector.getConnection;
@@ -22,14 +22,7 @@ function createApp({ userauth = true } = {}) {
     next();
   });
   app.use("/persons", personsRouter);
-  app.use((err, _req, res, _next) => {
-    if (err instanceof RESTError) {
-      res.status(err.status).json(err.payload);
-      return;
-    }
-
-    res.status(err.status || 500).json(err.message || "Something went wrong");
-  });
+  app.use(errorHandler);
 
   return app;
 }
@@ -163,6 +156,7 @@ describe("GET /persons/active route", () => {
     const response = await request(createApp()).get("/persons/active");
 
     expect(response.status).to.equal(500);
+    expect(response.body).to.deep.equal({ errors: "Something went wrong" });
   });
 });
 

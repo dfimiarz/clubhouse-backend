@@ -3,11 +3,11 @@
 require("dotenv").config();
 
 const express = require("express");
-const createError = require("http-errors");
 const cors = require("cors");
 const compression = require("compression");
 const app = express();
 const RESTError = require("./utils/RESTError");
+const errorHandler = require("./utils/errorHandler");
 const {
   checkUserAuth,
   checkGeoAuth,
@@ -60,17 +60,10 @@ app.use("/payment-types", require("./payment-types/api"));
 app.use("/events", require("./analytics/api"));
 
 app.use((_req, _res, next) => {
-  next(createError(404));
+  next(new RESTError(404, "Not Found"));
 });
 
-app.use((err, _req, res, _next) => {
-  if (err instanceof RESTError) {
-    res.status(err.status).json(err.payload);
-  } else {
-    log(appLogLevels.ERROR, err.message);
-    res.status(err.status || 500).json(err.message || "Something went wrong");
-  }
-});
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 8080;
 

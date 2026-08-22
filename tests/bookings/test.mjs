@@ -1,12 +1,15 @@
 import app from "../expressapp.mjs";
 import request from "supertest";
 import middleware from "../../bookings/middleware.js";
+import errorHandler from "../../utils/errorHandler.js";
 
 const { validateBatchInsertRequest } = middleware;
 
 app.post("/bookings/batch", [validateBatchInsertRequest], (req, res) => {
   res.status(200).json({ message: "ok" });
 });
+
+app.use(errorHandler);
 
 describe("Batch Booking Test", () => {
   it("Validates correct booking data", function (done) {
