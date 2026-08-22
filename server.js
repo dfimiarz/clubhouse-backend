@@ -13,6 +13,12 @@ const {
   checkGeoAuth,
   checkUserRole,
 } = require("./middleware/clientauth");
+const { getAllowedOrigins } = require("./utils/corsOrigins");
+const {
+  apilimiter,
+  writelimiter,
+  isRateLimitedWrite,
+} = require("./rate-limiter/rate-limiter");
 const { log, appLogLevels } = require('./utils/logger/logger');
 
 app.set("trust proxy", getTrustedProxySetting());
@@ -31,7 +37,18 @@ const corsOptions = {
 app.use(compression());
 app.use(cors(corsOptions));
 
-app.use(checkGeoAuth, checkUserAuth, checkUserRole);
+// Geo-auth first so the IP limiters can raise the cap for kiosks. Limiters
+// run before Firebase token verification. req.ip follows X-Forwarded-For
+// only when TRUST_PROXY_MODE is not false; nginx must overwrite that header.
+app.use(checkGeoAuth);
+app.use(apilimiter);
+app.use((req, res, next) => {
+  if (isRateLimitedWrite(req)) {
+    return writelimiter(req, res, next);
+  }
+  next();
+});
+app.use(checkUserAuth, checkUserRole);
 
 app.get("/", (_req, res) => {
   res.json({
@@ -100,26 +117,6 @@ function getTrustedProxySetting() {
 
   log(appLogLevels.ERROR, `Invalid TRUST_PROXY_MODE "${process.env.TRUST_PROXY_MODE}". Falling back to false.`);
   return false;
-}
-
-/**
- * CORS allowlist.
- *
- * Production (same-origin nginx /api proxy): set CORS_ORIGINS to the public
- * site origin(s), e.g. "https://knicktennis.net,https://www.knicktennis.net".
- * Falls back to local Vite / clubhouse.test patterns when unset.
- */
-function getAllowedOrigins() {
-  const fromEnv = (process.env.CORS_ORIGINS || "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-  if (fromEnv.length > 0) {
-    return fromEnv;
-  }
-
-  return [/localhost:5173$/, /\.clubhouse\.test:8081$/];
 }
 
 module.exports = app;

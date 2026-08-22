@@ -3,8 +3,17 @@ const net = require('node:net')
 const app = require('../firebaseadmin/firebaseadmin')
 const RESTError = require('../utils/RESTError')
 const { log, appLogLevels } = require('./../utils/logger/logger');
-const { getUserRole } = require('./../auth/controller');
+const authController = require('./../auth/controller');
 const club_id = process.env.CLUB_ID;
+
+const firebaseAuth = {
+    verifyIdToken(token) {
+        return getAuth(app).verifyIdToken(token)
+    },
+    getUser(uid) {
+        return getAuth(app).getUser(uid)
+    },
+}
 
 /**
  * 
@@ -40,18 +49,32 @@ function roleGuard(roles = []) {
 async function checkUserRole(req, res, next) {
 
     try {
-        if (!res.locals.username) {
-            next();
-        } else {
-
-            res.locals.role = await getUserRole(res.locals.username, club_id);
-
-            next();
+        if (!res.locals.username || res.locals.emailVerified !== true) {
+            return next();
         }
+
+        res.locals.role = await authController.getUserRole(res.locals.username, club_id);
+        res.locals.userauth = shouldGrantRemoteUserAuth({
+            emailVerified: res.locals.emailVerified,
+            role: res.locals.role,
+        });
+
+        next();
     } catch (err) {
         log(appLogLevels.ERROR, `User role error: ${err.message} `);
         next(err);
     }
+}
+
+/**
+ * Remote Firebase identity is only enough for authGuard when the email is
+ * verified and the person has a live membership (including guest).
+ *
+ * @param {{ emailVerified?: boolean, role?: number|null }} identity
+ * @returns {boolean}
+ */
+function shouldGrantRemoteUserAuth({ emailVerified, role } = {}) {
+    return emailVerified === true && role != null;
 }
 
 /**
@@ -63,27 +86,30 @@ async function checkUserRole(req, res, next) {
 async function checkUserAuth(req, res, next) {
 
 
-    const token = getTokenFromHeaders(req);
+    const token = parseBearerToken(req.headers.authorization);
 
-    if (token) {
-
-        try {
-            const decodedToken = await getAuth(app).verifyIdToken(token);
-            const uid = decodedToken.uid;
-
-            const user = await getAuth(app).getUser(uid);
-            res.locals.username = user.email;
-            res.locals.userauth = true;
-
-            next()
-        }
-        catch (err) {
-            log(appLogLevels.ERROR, `User token error: ${err}`)
-            next(new RESTError(401, "Unable to verify auth token"));
-        }
+    if (!token) {
+        return next();
     }
-    else {
-        next();
+
+    try {
+        const decodedToken = await firebaseAuth.verifyIdToken(token);
+        const uid = decodedToken.uid;
+        const user = await firebaseAuth.getUser(uid);
+
+        if (user.disabled) {
+            return next(new RESTError(401, "Unable to verify auth token"));
+        }
+
+        res.locals.uid = uid;
+        res.locals.username = user.email || decodedToken.email || null;
+        res.locals.emailVerified = user.emailVerified === true;
+
+        next()
+    }
+    catch (err) {
+        log(appLogLevels.ERROR, `User token error: ${err}`)
+        next(new RESTError(401, "Unable to verify auth token"));
     }
 
 
@@ -114,20 +140,19 @@ function checkGeoAuth(req, res, next) {
 }
 
 /**
- * 
- * @param {Request} req Express Request object 
+ * Extract a Firebase ID token from an HTTP Authorization header.
+ * Only the Bearer scheme is accepted (RFC 6750).
+ *
+ * @param {string|undefined} header
+ * @returns {string|null}
  */
-function getTokenFromHeaders(req) {
-
-    const bearerHeader = req.headers['authorization'];
-
-    if (bearerHeader) {
-        const bearer = bearerHeader.split(' ');
-        const bearerToken = bearer[1];
-        return bearerToken;
-    } else {
+function parseBearerToken(header) {
+    if (typeof header !== "string") {
         return null;
     }
+
+    const match = /^Bearer[ \t]+(\S+)$/i.exec(header.trim());
+    return match ? match[1] : null;
 }
 
 /**
@@ -185,4 +210,36 @@ function isTrustedProxySource(remoteAddress) {
         loweredAddress.startsWith("fe80:");
 }
 
-module.exports = { checkUserAuth, checkGeoAuth, authGuard, checkUserRole, roleGuard, isTrustedProxySource, getGeoAuthState }
+/**
+ * Test hook. Pass null to restore the Firebase Admin client.
+ *
+ * @param {{ verifyIdToken?: Function, getUser?: Function }|null} overrides
+ */
+function _setFirebaseAuth(overrides) {
+    if (!overrides) {
+        firebaseAuth.verifyIdToken = (token) => getAuth(app).verifyIdToken(token);
+        firebaseAuth.getUser = (uid) => getAuth(app).getUser(uid);
+        return;
+    }
+
+    if (overrides.verifyIdToken) {
+        firebaseAuth.verifyIdToken = overrides.verifyIdToken;
+    }
+
+    if (overrides.getUser) {
+        firebaseAuth.getUser = overrides.getUser;
+    }
+}
+
+module.exports = {
+    checkUserAuth,
+    checkGeoAuth,
+    authGuard,
+    checkUserRole,
+    roleGuard,
+    isTrustedProxySource,
+    getGeoAuthState,
+    parseBearerToken,
+    shouldGrantRemoteUserAuth,
+    _setFirebaseAuth,
+}
