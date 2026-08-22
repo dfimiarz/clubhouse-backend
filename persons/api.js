@@ -13,22 +13,6 @@ const router = express.Router();
 
 router.use(express.json())
 
-/**
- * Route to get all persons
- */
-router.get('/', authGuard, (req, res, next) => {
-
-     controller.getPersons()
-          .then((persons) => {
-               res.json(persons)
-          })
-          .catch((err) => {
-               next(err)
-          })
-
-
-});
-
 router.get('/eventhosts', authGuard, (req, res, next) => {
 
      controller.getEventHosts()

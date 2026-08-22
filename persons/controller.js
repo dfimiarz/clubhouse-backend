@@ -25,6 +25,24 @@ function foldAccents(value) {
     .toLowerCase();
 }
 
+/** Allow-list for GET /persons/active. Drops email and internal role fields. */
+function toPublicActivePerson(person) {
+  const dto = {
+    id: person.id,
+    firstname: person.firstname,
+    lastname: person.lastname,
+    public_label: person.public_label,
+    guest_host: person.guest_host,
+    requires_pass: person.requires_pass,
+  };
+
+  if (person.pass) {
+    dto.pass = person.pass;
+  }
+
+  return dto;
+}
+
 /**
  * Fetch the full, unfiltered list of active persons for the club from the
  * database, with active guest-pass info already merged onto each guest.
@@ -32,7 +50,8 @@ function foldAccents(value) {
  * @returns {Promise<Array>} Full active-persons list
  */
 async function fetchActivePersonsFromDB() {
-  const member_query = `SELECT m.* FROM membership_view m
+  const member_query = `SELECT m.id, m.firstname, m.lastname, m.public_label, m.guest_host, m.requires_pass
+                  FROM membership_view m
                   JOIN club c on c.id = m.club
                   WHERE DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from
                   AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < m.valid_until
@@ -84,7 +103,7 @@ async function fetchActivePersonsFromDB() {
       }
     });
 
-    return persons;
+    return persons.map(toPublicActivePerson);
   });
 }
 
@@ -155,7 +174,7 @@ async function getActivePersons({ ids, search, host } = {}) {
       .slice(0, SEARCH_RESULT_LIMIT);
   }
 
-  return results;
+  return results.map(toPublicActivePerson);
 }
 
 async function getClubManagers() {
@@ -318,17 +337,9 @@ function buildDuplicateGuestError(duplicateGuest) {
   });
 }
 
-async function getPersons() {
-  const query = `SELECT * from person`;
-  return sqlconnector.withConnection(async (connection) => {
-    return sqlconnector.runExecute(connection, query);
-  });
-}
-
 module.exports = {
   addGuest: addGuest,
   findDuplicateGuest,
-  getPersons,
   getActivePersons,
   getClubManagers,
   getEventHosts

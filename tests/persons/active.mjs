@@ -223,18 +223,69 @@ describe("getActivePersons controller", () => {
 
   describe("on a cache miss", () => {
     it("queries the unfiltered active list and caches it", async () => {
-      memberRows = [{ id: 1, firstname: "Jane", lastname: "Doe" }];
+      memberRows = [
+        {
+          id: 1,
+          firstname: "Jane",
+          lastname: "Doe",
+          public_label: "Member",
+          guest_host: 0,
+          requires_pass: 0,
+        },
+      ];
 
       const result = await personsController.getActivePersons();
 
       const { query, values } = memberQuery();
+      expect(query).to.not.match(/select\s+m\.\*/i);
+      expect(query).to.include("m.public_label");
+      expect(query).to.include("m.guest_host");
+      expect(query).to.include("m.requires_pass");
       expect(query).to.not.include("LIKE");
       expect(query).to.not.include("m.id IN");
-      expect(query).to.not.include("guest_host");
+      expect(query).to.not.match(/guest_host\s*=/i);
       expect(values).to.deep.equal([process.env.CLUB_ID]);
       expect(released).to.equal(true);
       expect(stored).to.deep.equal(memberRows);
       expect(result).to.deep.equal(memberRows);
+    });
+
+    it("omits email and role internals from the payload and the cache", async () => {
+      memberRows = [
+        {
+          id: 1,
+          firstname: "Jane",
+          lastname: "Doe",
+          email: "jane@example.com",
+          role: 5000,
+          role_name: "Admin",
+          role_type_id: 200,
+          role_type_name: "Staff",
+          valid_from: "2020-01-01",
+          valid_until: "2030-01-01",
+          club: 1,
+          event_host: 1,
+          public_label: "Member",
+          guest_host: 1,
+          requires_pass: 0,
+        },
+      ];
+
+      const result = await personsController.getActivePersons();
+      const expected = {
+        id: 1,
+        firstname: "Jane",
+        lastname: "Doe",
+        public_label: "Member",
+        guest_host: 1,
+        requires_pass: 0,
+      };
+
+      expect(result).to.deep.equal([expected]);
+      expect(stored).to.deep.equal([expected]);
+      expect(result[0]).to.not.have.property("email");
+      expect(result[0]).to.not.have.property("role");
+      expect(result[0]).to.not.have.property("role_name");
     });
 
     it("attaches active passes to pass-requiring persons only", async () => {
@@ -297,9 +348,30 @@ describe("getActivePersons controller", () => {
   describe("on a cache hit", () => {
     beforeEach(() => {
       cachedList = [
-        { id: 1, firstname: "Jane", lastname: "Doe", guest_host: 1 },
-        { id: 2, firstname: "John", lastname: "Adams", guest_host: 0 },
-        { id: 3, firstname: "Amy", lastname: "Doe", guest_host: 0 },
+        {
+          id: 1,
+          firstname: "Jane",
+          lastname: "Doe",
+          public_label: "Member",
+          guest_host: 1,
+          requires_pass: 0,
+        },
+        {
+          id: 2,
+          firstname: "John",
+          lastname: "Adams",
+          public_label: "Member",
+          guest_host: 0,
+          requires_pass: 0,
+        },
+        {
+          id: 3,
+          firstname: "Amy",
+          lastname: "Doe",
+          public_label: "Guest",
+          guest_host: 0,
+          requires_pass: 1,
+        },
       ];
     });
 
@@ -313,6 +385,36 @@ describe("getActivePersons controller", () => {
       const result = await personsController.getActivePersons();
 
       expect(result).to.deep.equal(cachedList);
+    });
+
+    it("strips email and role internals from stale cache entries", async () => {
+      cachedList = [
+        {
+          id: 1,
+          firstname: "Jane",
+          lastname: "Doe",
+          email: "jane@example.com",
+          role: 5000,
+          role_name: "Admin",
+          public_label: "Member",
+          guest_host: 1,
+          requires_pass: 0,
+        },
+      ];
+
+      const result = await personsController.getActivePersons();
+
+      expect(result).to.deep.equal([
+        {
+          id: 1,
+          firstname: "Jane",
+          lastname: "Doe",
+          public_label: "Member",
+          guest_host: 1,
+          requires_pass: 0,
+        },
+      ]);
+      expect(result[0]).to.not.have.property("email");
     });
 
     it("restricts to guest hosts when host is set", async () => {
