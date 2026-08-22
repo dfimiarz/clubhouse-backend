@@ -1,8 +1,6 @@
 const Validator = require("jsonschema").Validator;
 const { getSchema, getSupportedCommands } = require("./command");
 const { checkPermission } = require("./permissions/BookingPermissions");
-const { validateBatchInsertData, formatErrorsForLogging } = require("../utils/JSONvalidator");
-const { log, appLogLevels } = require('./../utils/logger/logger');
 const RESTError = require("../utils/RESTError");
 
 
@@ -22,25 +20,6 @@ function checkBookingPermissions(req, res, next) {
     }
   });
 
-  next();
-}
-
-/**
- * Validate the request body for batch insert
- *
- * @param {Request} req
- * @param {Response} _res
- * @param {NextFunction} next
- */
-function validateBatchInsertRequest(req, _res, next) {
-
-  const valid = validateBatchInsertData(req.body);
-
-  if (!valid) {
-    //Get all errors and extract instance path and messages into separate array of objects
-    log(appLogLevels.ERROR, formatErrorsForLogging(validateBatchInsertData.errors, "Unable to validate batch data"));
-    return next(new RESTError(400, "Unable to validate batch data"));
-  }
   next();
 }
 
@@ -118,5 +97,4 @@ function validateSchema(val, schema) {
 module.exports = {
   checkBookingPermissions,
   validatePatchRequest,
-  validateBatchInsertRequest,
 };

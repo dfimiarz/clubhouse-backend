@@ -3,7 +3,7 @@ const { z } = require('zod')
 const { validate, hhmm, isoDate, intLike, requiredIntLike, csvIntList } = require('./../utils/validate')
 const matchcontroller = require('./controller')
 const { resolveSessionRules, MATCH_PLAYER_TYPE_IDS } = require('./sessionRules')
-const { checkBookingPermissions, validatePatchRequest, validateBatchInsertRequest } = require('./middleware')
+const { checkBookingPermissions, validatePatchRequest } = require('./middleware')
 const { authGuard } = require('../middleware/clientauth')
 const pusher = require('./../pusher/Pusher')
 const { log, appLogLevels } = require('./../utils/logger/logger');
@@ -179,23 +179,6 @@ router.get('/player-types', authGuard, validate(
                })
      }
 );
-
-router.post('/batch', validateBatchInsertRequest, (req, res, next) => {
-     
-     matchcontroller.addBookingBatch(req)
-          .then(() => {
-               pusher.trigger("bookings", "booking_change", {
-                    date: req.body.date
-               }).catch(err => {
-                    log(appLogLevels.ERROR, `Pusher error in batch: ${err}`);
-               })
-               res.status(201).send()
-          })
-          .catch((err) => {
-               next(err)
-          })
-
-});
 
 const newBookingBody = z.object({
      court: intLike("Invalid court id"),

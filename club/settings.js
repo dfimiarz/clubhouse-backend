@@ -14,8 +14,9 @@
  *   VALUES (<club id>, '<key>', '<value>')
  *   ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
  *
- * The GET /club payload is cached in Redis with no TTL, so any change to a
+ * getClubInfo is cached in Redis with no TTL, so any change to a
  * club_setting row needs `yarn cache:clear` before it takes effect.
+ * GET /club projects a public DTO from that cache on the way out.
  */
 
 const SETTINGS = {

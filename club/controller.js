@@ -5,7 +5,7 @@ const sqlconnector = require('../db/SqlConnector');
 const RESTError = require('./../utils/RESTError');
 const { storeJSON, getJSON } = require('./../db/RedisConnector');
 const { log, appLogLevels } = require('./../utils/logger/logger');
-const { resolveSettings } = require('./settings');
+const { SETTINGS, resolveSettings } = require('./settings');
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -37,7 +37,6 @@ async function getClubInfo() {
                             id,
                             name,
                             time_zone,
-                            guest_reg_limit,
                             default_cal_start,
                             default_cal_end,
                             time_to_sec(default_cal_start) DIV 60 as default_cal_start_min,
@@ -104,7 +103,6 @@ async function getClubInfo() {
                 id: club["id"],
                 name: club["name"],
                 time_zone: club["time_zone"],
-                guest_req_limit: club["guest_req_limit"],
                 default_cal_start: club["default_cal_start"],
                 default_cal_start_min: club["default_cal_start_min"],
                 default_cal_end: club["default_cal_end"],
@@ -186,6 +184,85 @@ async function getClubInfo() {
 }
 
 /**
+ * Allow-listed public club payload. Branding, timezone, about copy, calendar
+ * hours, public settings, and redacted role labels. Applied on the way out so
+ * a stale Redis entry cannot leak role capabilities or guest-reg internals.
+ *
+ * @param {object} club
+ * @returns {object}
+ */
+function toPublicClub(club) {
+    const source = club && typeof club === "object" ? club : {};
+
+    return {
+        id: source.id,
+        name: source.name,
+        time_zone: source.time_zone,
+        default_cal_start: source.default_cal_start,
+        default_cal_start_min: source.default_cal_start_min,
+        default_cal_end: source.default_cal_end,
+        default_cal_end_min: source.default_cal_end_min,
+        images: toPublicImages(source.images),
+        about_sections: toPublicAboutSections(source.about_sections),
+        settings: toPublicSettings(source.settings),
+        roles: toPublicRoles(source.roles),
+    };
+}
+
+function toPublicImages(images) {
+    if (!Array.isArray(images)) {
+        return [];
+    }
+
+    return images.map((image) => ({
+        name: image?.name,
+        src: image?.src,
+    }));
+}
+
+function toPublicAboutSections(sections) {
+    if (!Array.isArray(sections)) {
+        return [];
+    }
+
+    return sections.map((section) => ({
+        title: section?.title,
+        image_url: section?.image_url,
+        text: section?.text,
+    }));
+}
+
+function toPublicSettings(settings) {
+    const source = settings && typeof settings === "object" && !Array.isArray(settings)
+        ? settings
+        : {};
+    const resolved = {};
+
+    Object.entries(SETTINGS).forEach(([key, definition]) => {
+        if (!definition.public) {
+            return;
+        }
+
+        resolved[key] = Object.prototype.hasOwnProperty.call(source, key)
+            ? source[key]
+            : definition.default;
+    });
+
+    return resolved;
+}
+
+function toPublicRoles(roles) {
+    if (!Array.isArray(roles)) {
+        return [];
+    }
+
+    return roles.map((role) => ({
+        id: role?.id,
+        public_label: role?.public_label,
+    }));
+}
+
+/**
  * Club-local calendar date for "now" (YYYY-MM-DD).
  */
 async function getClubLocalToday() {
@@ -195,5 +272,6 @@ async function getClubLocalToday() {
 
 module.exports = {
     getClubInfo,
-    getClubLocalToday
+    getClubLocalToday,
+    toPublicClub
 }

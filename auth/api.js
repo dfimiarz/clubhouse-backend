@@ -8,7 +8,9 @@ const router = express.Router();
 router.use(express.json());
 
 /**
- * Route to check for geoauth
+ * Auth probes. Unauthenticated on purpose: the site boots these before
+ * login so kiosk geo-auth and anonymous public mode can be distinguished.
+ * They only echo the caller's own flags, not catalogs.
  */
 router.get("/geo", (req, res, _next) => {
   res.json({ geoauth: res.locals.geoauth });

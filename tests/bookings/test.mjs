@@ -1,84 +1,49 @@
-import app from "../expressapp.mjs";
+import { expect } from "chai";
+import express from "express";
 import request from "supertest";
-import middleware from "../../bookings/middleware.js";
+
+import bookingsRouter from "../../bookings/api.js";
 import errorHandler from "../../utils/errorHandler.js";
+import RESTError from "../../utils/RESTError.js";
 
-const { validateBatchInsertRequest } = middleware;
-
-app.post("/bookings/batch", [validateBatchInsertRequest], (req, res) => {
-  res.status(200).json({ message: "ok" });
-});
-
-app.use(errorHandler);
-
-describe("Batch Booking Test", () => {
-  it("Validates correct booking data", function (done) {
-    const data = [
-      {
-        date: "2024-01-01",
-        start: "12:30:00",
-        end: "13:30:00",
-        court_id: 1,
-        booking_type_id: 1,
-        players: [
-          { person_id: 1, player_type_id: 1 },
-          { person_id: 2, player_type_id: 1 },
-        ],
-        notes: "Test booking 1",
-      },
-      {
-        date: "2024-01-01",
-        start: "12:30:00",
-        end: "13:30:00",
-        court_id: 1,
-        booking_type_id: 1,
-        players: [
-          { person_id: 1, player_type_id: 1 },
-          { person_id: 2, player_type_id: 1 },
-        ],
-        notes: "Test booking 1",
-      },
-    ];
-
-    request(app)
-      .post("/bookings/batch")
-      .set("Content-Type", "application/json")
-      .send(data)
-      .expect(200)
-      .end(function (err, _res) {
-        if (err) return done(err);
-        return done();
-      });
+function createApp({ userauth = false } = {}) {
+  const app = express();
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.locals.userauth = userauth;
+    res.locals.geoauth = false;
+    next();
   });
-  it("Fails validation with no data", function (done) {
-    const data = [];
+  app.use("/bookings", bookingsRouter);
+  app.use((_req, _res, next) => next(new RESTError(404, "Not Found")));
+  app.use(errorHandler);
 
-    request(app)
+  return app;
+}
+
+describe("POST /bookings/batch", () => {
+  it("is not an unauthenticated insert route", async () => {
+    const response = await request(createApp())
       .post("/bookings/batch")
-      .set("Content-Type", "application/json")
-      .send(data)
-      .expect(400)
-      .end(function (err, _res) {
-        if (err) return done(err);
-        return done();
-      });
+      .send([
+        {
+          date: "2024-01-01",
+          start: "12:30:00",
+          end: "13:30:00",
+          court_id: 1,
+          booking_type_id: 1,
+          players: [{ person_id: 1, player_type_id: 1 }],
+        },
+      ]);
+
+    expect(response.status).to.equal(404);
   });
 
-  it("Fails validation with misformatted data", function (done) {
-    const data = [
-      {
-        date: "2024",
-      },
-    ];
-
-    request(app)
+  it("is not available to authenticated callers either", async () => {
+    const response = await request(createApp({ userauth: true }))
       .post("/bookings/batch")
-      .set("Content-Type", "application/json")
-      .send(data)
-      .expect(400)
-      .end(function (err, _res) {
-        if (err) return done(err);
-        return done();
-      });
+      .send([]);
+
+    expect(response.status).to.equal(404);
   });
 });

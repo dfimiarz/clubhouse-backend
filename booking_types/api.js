@@ -1,14 +1,12 @@
 const express = require('express')
 const controller = require('./controller')
+const { authGuard } = require('../middleware/clientauth')
 
 const router = express.Router();
 
 router.use(express.json());
 
-/**
- * Route to get all nestboxes
- */
-router.get('/',(req, res, next) => {
+router.get('/', authGuard, (req, res, next) => {
 
     controller.getBookingTypes()
         .then((booking_types) => {
