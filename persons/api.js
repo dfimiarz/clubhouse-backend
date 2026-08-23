@@ -131,11 +131,11 @@ router.post('/guests', rateLimiter.guestregistrationlimiter, validate(guestSchem
                }
           }
 
-          await controller.addGuest(req, {
+          const result = await controller.addGuest(req, {
                discloseDuplicates: utils.isAuthenticated(res),
           });
 
-          res.status(201).send();
+          res.status(201).json({ outcome: result.outcome });
      }
      catch (err) {
           return next(err)

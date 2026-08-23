@@ -7,6 +7,7 @@ const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("./../utils/RESTError");
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../utils/utils");
+const { ROLES } = require("../utils/dbconstants");
 const {
   loadSettingsByPassType,
   rulesForPassType,
@@ -204,9 +205,14 @@ async function getEventHosts() {
 /**
  * @param {import("express").Request} request
  * @param {{ discloseDuplicates?: boolean }} [options]
- *   Authenticated callers get a 409 that names the matching field. Anonymous
- *   callers get a silent no-op (same 201 as a create) so email/phone existence
- *   cannot be enumerated.
+ *   Authenticated callers get a 409 that names the matching field when the
+ *   person already has a covering (or overlapping) membership. A found person
+ *   with no overlapping membership is granted Guest for the rest of the
+ *   current club season; authenticated callers see that as `reactivated`.
+ *   Anonymous callers always get `created` — a duplicate is a silent no-op
+ *   and a reactivation is masked — so email/phone existence cannot be
+ *   enumerated.
+ * @returns {Promise<{ outcome: "created" | "reactivated" }>}
  */
 async function addGuest(request, { discloseDuplicates = false } = {}) {
   const OPCODE = "ADD_GUEST";
@@ -215,7 +221,6 @@ async function addGuest(request, { discloseDuplicates = false } = {}) {
   const lastname = normalizeWhitespace(request.body.lastname);
   const email = normalizeEmail(request.body.email);
   const phone = normalizePhone(request.body.phone);
-  const GUEST_ROLE_ID = 500;
 
   const _firstNames = firstname.split(" ");
   const _lastNames = lastname.split("-");
@@ -240,11 +245,18 @@ async function addGuest(request, { discloseDuplicates = false } = {}) {
 
   const person_query =
     "INSERT INTO `person` (`club`,`created`,`firstname`,`lastname`,`email`,`phone`,`gender`) VALUES (?,now(),?,?,?,?,DEFAULT)";
-  const membership_query =
-    "INSERT INTO `membership` (`person_id`,`valid_from`,`valid_until`,`role`) VALUES (?,CURDATE(),DATE_ADD(DATE_FORMAT(NOW(), '%Y-01-01'), INTERVAL 1 YEAR),?)";
 
   try {
-    const { created } = await sqlconnector.withTransaction(async (connection) => {
+    const { outcome, wrote } = await sqlconnector.withTransaction(async (connection) => {
+      const season = await loadCurrentSeason(connection);
+
+      if (!season) {
+        throw new RESTError(
+          400,
+          "Guest registration is not available outside the season"
+        );
+      }
+
       const duplicateGuest = await findDuplicateGuest(connection, {
         firstname: formattedFirstName,
         lastname: formattedLastName,
@@ -253,10 +265,21 @@ async function addGuest(request, { discloseDuplicates = false } = {}) {
       });
 
       if (duplicateGuest) {
-        if (!discloseDuplicates) {
-          return { created: false };
+        const overlapping = await findOverlappingMemberships(
+          connection,
+          duplicateGuest.id,
+          season
+        );
+
+        if (overlapping.length > 0) {
+          if (!discloseDuplicates) {
+            return { outcome: "created", wrote: false };
+          }
+          throw buildDuplicateGuestError(duplicateGuest);
         }
-        throw buildDuplicateGuestError(duplicateGuest);
+
+        await insertGuestMembership(connection, duplicateGuest.id, season);
+        return { outcome: "reactivated", wrote: true };
       }
 
       const person_insert_result = await sqlconnector.runExecute(
@@ -267,40 +290,129 @@ async function addGuest(request, { discloseDuplicates = false } = {}) {
 
       const person_id = person_insert_result.insertId;
 
-      await sqlconnector.runExecute(connection, membership_query, [
-        person_id,
-        GUEST_ROLE_ID,
-      ]);
+      await insertGuestMembership(connection, person_id, season);
 
-      return { created: true };
+      return { outcome: "created", wrote: true };
     }, { mode: "readWrite" });
 
-    if (!created) {
-      return;
+    if (wrote) {
+      //Invalidate the active-persons cache so the guest shows up immediately.
+      //Best effort: the cache TTL bounds staleness if the delete fails.
+      try {
+        await redisconnector.deleteKey(ACTIVE_PERSONS_CACHE_KEY);
+      } catch (error) {
+        log(appLogLevels.WARNING, `Error invalidating active persons cache: ${error}`);
+      }
+
+      log(
+        appLogLevels.INFO,
+        `Guest ${outcome}: ${JSON.stringify({ firstname: formattedFirstName, lastname: formattedLastName, email: email, phone: phone })}`
+      );
     }
 
-    //Invalidate the active-persons cache so the new guest shows up immediately.
-    //Best effort: the cache TTL bounds staleness if the delete fails.
-    try {
-      await redisconnector.deleteKey(ACTIVE_PERSONS_CACHE_KEY);
-    } catch (error) {
-      log(appLogLevels.WARNING, `Error invalidating active persons cache: ${error}`);
-    }
-
-    log(appLogLevels.INFO, `Guest added: ${JSON.stringify({ firstname: formattedFirstName, lastname: formattedLastName, email: email, phone: phone })}`);
+    // Same enumeration oracle as the duplicate no-op: `reactivated` would
+    // tell an anonymous caller the email/phone belongs to an existing
+    // (inactive) person, so only authenticated callers see it.
+    return { outcome: discloseDuplicates ? outcome : "created" };
   } catch (error) {
     if (error instanceof RESTError) {
       throw error;
     }
 
-    // Unique (club, email) race: same oracle as findDuplicateGuest. Swallow
-    // for anonymous so 1062 cannot distinguish an existing address.
-    if (!discloseDuplicates && error && error.errno === 1062) {
-      return;
+    // Unique (club, email) race or overlapping-membership trigger: same
+    // oracle as findDuplicateGuest. Swallow for anonymous so 1062/1644
+    // cannot distinguish an existing address or role.
+    if (
+      !discloseDuplicates &&
+      error &&
+      (error.errno === 1062 || error.errno === 1644)
+    ) {
+      return { outcome: "created" };
     }
 
     throw new SQLErrorFactory.getError(OPCODE, error);
   }
+}
+
+/**
+ * Current club season for club-local today, or null when none is open.
+ * Season end is exclusive, matching guest-pass and membership date math.
+ *
+ * @param {import("mysql2").PoolConnection} connection
+ * @returns {Promise<{ time_zone: string, season_start: string, season_end: string } | null>}
+ */
+async function loadCurrentSeason(connection) {
+  const query = `
+    SELECT
+      c.time_zone,
+      cs.start AS season_start,
+      cs.end AS season_end
+    FROM club c
+    JOIN club_seasons cs ON cs.club = c.id
+    WHERE
+      c.id = ?
+      AND DATE(convert_tz(NOW(), @@GLOBAL.time_zone, c.time_zone)) >= cs.start
+      AND DATE(convert_tz(NOW(), @@GLOBAL.time_zone, c.time_zone)) < cs.end
+    FOR SHARE
+  `;
+  const rows = await sqlconnector.runExecute(connection, query, [club_id]);
+
+  if (!(Array.isArray(rows) && rows.length === 1)) {
+    return null;
+  }
+
+  return {
+    time_zone: rows[0].time_zone,
+    season_start: rows[0].season_start,
+    season_end: rows[0].season_end,
+  };
+}
+
+/**
+ * Membership rows that overlap [club-local today, season_end).
+ * Covers a role active today and a future role in the grant window.
+ *
+ * @param {import("mysql2").PoolConnection} connection
+ * @param {number} personId
+ * @param {{ time_zone: string, season_end: string }} season
+ * @returns {Promise<Array>}
+ */
+async function findOverlappingMemberships(connection, personId, season) {
+  const query = `
+    SELECT record_id, role, valid_from, valid_until
+    FROM membership
+    WHERE person_id = ?
+      AND valid_from < ?
+      AND valid_until > DATE(convert_tz(NOW(), @@GLOBAL.time_zone, ?))
+    FOR UPDATE
+  `;
+  const rows = await sqlconnector.runExecute(connection, query, [
+    personId,
+    season.season_end,
+    season.time_zone,
+  ]);
+
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
+ * Guest membership covering club-local today through the current season end.
+ *
+ * @param {import("mysql2").PoolConnection} connection
+ * @param {number} personId
+ * @param {{ time_zone: string, season_end: string }} season
+ */
+async function insertGuestMembership(connection, personId, season) {
+  const query = `
+    INSERT INTO \`membership\` (\`person_id\`, \`valid_from\`, \`valid_until\`, \`role\`)
+    VALUES (?, DATE(convert_tz(NOW(), @@GLOBAL.time_zone, ?)), ?, ?)
+  `;
+  await sqlconnector.runExecute(connection, query, [
+    personId,
+    season.time_zone,
+    season.season_end,
+    ROLES.GUEST,
+  ]);
 }
 
 async function findDuplicateGuest(connection, guest) {
@@ -310,6 +422,7 @@ async function findDuplicateGuest(connection, guest) {
     WHERE club = ?
       AND LOWER(TRIM(email)) = ?
     LIMIT 1
+    FOR UPDATE
   `;
   const emailMatches = await sqlconnector.runQuery(connection, emailQuery, [
     club_id,
@@ -332,6 +445,7 @@ async function findDuplicateGuest(connection, guest) {
       AND LOWER(TRIM(lastname)) = ?
       AND TRIM(phone) = ?
     LIMIT 1
+    FOR UPDATE
   `;
   const identityMatches = await sqlconnector.runQuery(connection, identityQuery, [
     club_id,

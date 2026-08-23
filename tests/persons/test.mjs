@@ -31,7 +31,7 @@ function createApp({ userauth = false, geoauth = false } = {}) {
 
 describe("Guest registration security", () => {
   beforeEach(() => {
-    personsController.addGuest = async () => {};
+    personsController.addGuest = async () => ({ outcome: "created" });
     authController.verifyhCaptcha = async () => ({
       success: true,
       replayed: false,
@@ -78,6 +78,7 @@ describe("Guest registration security", () => {
       });
 
     expect(response.status).to.equal(201);
+    expect(response.body).to.deep.equal({ outcome: "created" });
   });
 
   it("allows authenticated registration when the client posts a null captcha", async () => {
@@ -191,6 +192,7 @@ describe("Guest registration security", () => {
 
     personsController.addGuest = async (_req, options) => {
       addGuestOptions = options;
+      return { outcome: "created" };
     };
 
     const app = createApp({ userauth: true });
@@ -214,6 +216,7 @@ describe("Guest registration security", () => {
 
     personsController.addGuest = async (_req, options) => {
       addGuestOptions = options;
+      return { outcome: "created" };
     };
 
     const app = createApp({ geoauth: true });
@@ -237,6 +240,7 @@ describe("Guest registration security", () => {
 
     personsController.addGuest = async (_req, options) => {
       addGuestOptions = options;
+      return { outcome: "created" };
     };
 
     const app = createApp();
@@ -280,6 +284,25 @@ describe("Guest registration security", () => {
       param: "email",
       msg: "Guest already exists",
     });
+  });
+
+  it("returns the addGuest outcome in the 201 body", async () => {
+    personsController.addGuest = async () => ({ outcome: "reactivated" });
+
+    const app = createApp({ userauth: true });
+
+    const response = await request(app)
+      .post("/persons/guests")
+      .set("X-Forwarded-For", "198.51.100.19")
+      .send({
+        firstname: "John",
+        lastname: "Doe",
+        email: "john@example.com",
+        agreement: true,
+      });
+
+    expect(response.status).to.equal(201);
+    expect(response.body).to.deep.equal({ outcome: "reactivated" });
   });
 
   it("marks public remote addresses with trusted header as spoofed", () => {
