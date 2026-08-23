@@ -7,6 +7,7 @@ import personsController from "../../persons/controller.js";
 import authController from "../../auth/controller.js";
 import clientAuth from "../../middleware/clientauth.js";
 import errorHandler from "../../utils/errorHandler.js";
+import RESTError from "../../utils/RESTError.js";
 
 const { getGeoAuthState } = clientAuth;
 
@@ -154,6 +155,102 @@ describe("Guest registration security", () => {
       });
 
     expect(blockedResponse.status).to.equal(429);
+  });
+
+  it("tells authenticated callers to disclose duplicate guests", async () => {
+    let addGuestOptions;
+
+    personsController.addGuest = async (_req, options) => {
+      addGuestOptions = options;
+    };
+
+    const app = createApp({ userauth: true });
+
+    const response = await request(app)
+      .post("/persons/guests")
+      .set("X-Forwarded-For", "198.51.100.14")
+      .send({
+        firstname: "John",
+        lastname: "Doe",
+        email: "john@example.com",
+        agreement: true,
+      });
+
+    expect(response.status).to.equal(201);
+    expect(addGuestOptions).to.deep.equal({ discloseDuplicates: true });
+  });
+
+  it("tells kiosk geoauth callers to disclose duplicate guests", async () => {
+    let addGuestOptions;
+
+    personsController.addGuest = async (_req, options) => {
+      addGuestOptions = options;
+    };
+
+    const app = createApp({ geoauth: true });
+
+    const response = await request(app)
+      .post("/persons/guests")
+      .set("X-Forwarded-For", "198.51.100.17")
+      .send({
+        firstname: "John",
+        lastname: "Doe",
+        email: "john@example.com",
+        agreement: true,
+      });
+
+    expect(response.status).to.equal(201);
+    expect(addGuestOptions).to.deep.equal({ discloseDuplicates: true });
+  });
+
+  it("hides duplicate reasons from anonymous callers", async () => {
+    let addGuestOptions;
+
+    personsController.addGuest = async (_req, options) => {
+      addGuestOptions = options;
+    };
+
+    const app = createApp();
+
+    const response = await request(app)
+      .post("/persons/guests")
+      .set("X-Forwarded-For", "198.51.100.15")
+      .send({
+        firstname: "John",
+        lastname: "Doe",
+        email: "john@example.com",
+        agreement: true,
+        hcaptcha: "token-anon",
+      });
+
+    expect(response.status).to.equal(201);
+    expect(addGuestOptions).to.deep.equal({ discloseDuplicates: false });
+  });
+
+  it("returns field errors when an authenticated duplicate is disclosed", async () => {
+    personsController.addGuest = async () => {
+      throw new RESTError(409, {
+        fielderrors: [{ param: "email", msg: "Guest already exists" }],
+      });
+    };
+
+    const app = createApp({ userauth: true });
+
+    const response = await request(app)
+      .post("/persons/guests")
+      .set("X-Forwarded-For", "198.51.100.16")
+      .send({
+        firstname: "John",
+        lastname: "Doe",
+        email: "john@example.com",
+        agreement: true,
+      });
+
+    expect(response.status).to.equal(409);
+    expect(response.body.fielderrors).to.deep.include({
+      param: "email",
+      msg: "Guest already exists",
+    });
   });
 
   it("marks public remote addresses with trusted header as spoofed", () => {

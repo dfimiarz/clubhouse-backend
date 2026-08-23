@@ -1,44 +1,10 @@
-const { v4: uuidv4 } = require('uuid');
-const { getClient } = require('./../db/RedisConnector')
-const svgCaptcha = require('svg-captcha')
-const RESTError = require('./../utils/RESTError');
+const crypto = require('node:crypto');
+const redisconnector = require('./../db/RedisConnector');
 const sqlconnector = require('../db/SqlConnector');
+const { log, appLogLevels } = require('./../utils/logger/logger');
 
-const EXP_TIME = 60; //Capcha expired in 120 seconds
-const USED_HCAPTCHA_TOKENS = new Map();
-const HCAPTCHA_TOKEN_TTL_MS = 2 * 60 * 1000;
-
-/**
- * 
- * @returns { Object } Captch params
- */
-async function getCaptcha() {
-
-    const captcha = svgCaptcha.create({ size: 5, noise: 2 });
-    const requestid = uuidv4();
-    const text = captcha.text;
-
-
-    await getClient().set(requestid, text, {
-        EX: EXP_TIME,
-        NX: true
-    });
-
-    return { svg: encodeURIComponent(captcha.data), reqid: requestid }
-
-}
-
-async function verifyCaptcha(requestid, text) {
-
-    const res = await getClient().get(requestid);
-
-    if (!res) {
-        throw new RESTError(422,{ fielderrors: [{ param: "captcha", msg: "Captcha expired"}]});
-    }
-
-    return res === text
-
-}
+const HCAPTCHA_TOKEN_TTL_SECONDS = 2 * 60;
+const DEV_HCAPTCHA_HOSTNAMES = ["localhost", "clubhouse.test"];
 
 /**
  * 
@@ -66,14 +32,109 @@ async function getUserRole(username, club_id) {
     });
 }
 
+function isProduction(env) {
+    return (env.NODE_ENV || "").trim().toLowerCase() === "production";
+}
+
+function hostnameFromAllowlistEntry(entry) {
+    try {
+        if (/^https?:\/\//i.test(entry)) {
+            return new URL(entry).hostname.toLowerCase();
+        }
+
+        return entry
+            .replace(/^https?:\/\//i, "")
+            .split("/")[0]
+            .split(":")[0]
+            .toLowerCase();
+    } catch {
+        return null;
+    }
+}
+
 /**
- * TO DO: Move to a separate file
+ * Hostnames hCaptcha may report for a solved widget.
+ *
+ * Production with an empty/invalid list returns [] so the hostname check
+ * rejects rather than skipping. Dev falls back to local widget hosts when
+ * the env var is unset or parses to nothing.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]}
  */
+function getAllowedHCaptchaHostnames(env = process.env) {
+    const parsed = [];
 
+    for (const entry of (env.HCAPTCHA_ALLOWED_HOSTNAMES || "").split(",")) {
+        const hostname = hostnameFromAllowlistEntry(entry.trim());
+        if (hostname && !parsed.includes(hostname)) {
+            parsed.push(hostname);
+        }
+    }
+
+    if (parsed.length > 0) {
+        return parsed;
+    }
+
+    if (isProduction(env)) {
+        log(
+            appLogLevels.ERROR,
+            "HCAPTCHA_ALLOWED_HOSTNAMES is empty in production; rejecting all captcha hostnames"
+        );
+        return [];
+    }
+
+    return DEV_HCAPTCHA_HOSTNAMES;
+}
+
+function usedHcaptchaKey(token) {
+    const hash = crypto.createHash("sha256").update(String(token)).digest("hex");
+    return `hcaptcha:used:${hash}`;
+}
+
+/**
+ * Atomically claim a token in Redis so two instances cannot both pass
+ * siteverify. NX miss is a replay; Redis errors fail closed (token unused
+ * at hCaptcha, caller must solve a new challenge).
+ *
+ * @param {string} token
+ * @returns {Promise<"ok"|"replayed"|"unavailable">}
+ */
+async function claimHcaptchaToken(token) {
+    try {
+        const stored = await redisconnector.getClient().set(
+            usedHcaptchaKey(token),
+            "1",
+            {
+                EX: HCAPTCHA_TOKEN_TTL_SECONDS,
+                NX: true,
+            }
+        );
+
+        return stored === "OK" ? "ok" : "replayed";
+    } catch (error) {
+        log(appLogLevels.WARNING, `hCaptcha replay store failed: ${error}`);
+        return "unavailable";
+    }
+}
+
+/**
+ * @param {string} token
+ * @param {{ remoteip?: string, env?: NodeJS.ProcessEnv }} [options]
+ */
 async function verifyhCaptcha(token, options = {}) {
-    purgeExpiredHcaptchaTokens();
+    if (!token) {
+        return {
+            success: false,
+            replayed: false,
+            hostname: null,
+            hostnameValid: false,
+        };
+    }
 
-    if (USED_HCAPTCHA_TOKENS.has(token)) {
+    const claim = await claimHcaptchaToken(token);
+
+    if (claim === "replayed") {
         return {
             success: false,
             replayed: true,
@@ -82,10 +143,27 @@ async function verifyhCaptcha(token, options = {}) {
         };
     }
 
-    const secret = process.env.HCAPTCHA_SECRET_KEY;
-    const expectedHostnames = getAllowedHCaptchaHostnames();
+    if (claim !== "ok") {
+        return {
+            success: false,
+            replayed: false,
+            hostname: null,
+            hostnameValid: false,
+        };
+    }
 
-    const url = `https://hcaptcha.com/siteverify`;
+    const expectedHostnames = getAllowedHCaptchaHostnames(options.env || process.env);
+
+    if (expectedHostnames.length === 0) {
+        return {
+            success: false,
+            replayed: false,
+            hostname: null,
+            hostnameValid: false,
+        };
+    }
+
+    const secret = process.env.HCAPTCHA_SECRET_KEY;
 
     const data = { secret, response: token };
 
@@ -93,28 +171,25 @@ async function verifyhCaptcha(token, options = {}) {
         data.remoteip = options.remoteip;
     }
 
-    const response = await fetch(url, {
-        method: 'POST',
+    const response = await fetch("https://hcaptcha.com/siteverify", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
+            "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: new URLSearchParams(data)
+        body: new URLSearchParams(data),
     });
 
     const result = await response.json();
-    console.log("hCaptcha verification result:", result);
     const normalizedHostname = typeof result.hostname === "string"
         ? result.hostname.toLowerCase()
         : null;
 
-    const hostnameValid = expectedHostnames.length === 0
-        ? true
-        : !!normalizedHostname && expectedHostnames.includes(normalizedHostname);
+    // Empty allow-list never means "skip": a token is valid only when the
+    // reported hostname is on a non-empty list.
+    const hostnameValid = expectedHostnames.length > 0
+        && !!normalizedHostname
+        && expectedHostnames.includes(normalizedHostname);
     const success = result.success === true && hostnameValid;
-
-    if (success) {
-        USED_HCAPTCHA_TOKENS.set(token, Date.now() + HCAPTCHA_TOKEN_TTL_MS);
-    }
 
     return {
         success,
@@ -122,53 +197,10 @@ async function verifyhCaptcha(token, options = {}) {
         hostname: result.hostname || null,
         hostnameValid,
     };
-
 }
-
-function purgeExpiredHcaptchaTokens() {
-    const now = Date.now();
-
-    for (const [token, expiresAt] of USED_HCAPTCHA_TOKENS.entries()) {
-        if (expiresAt <= now) {
-            USED_HCAPTCHA_TOKENS.delete(token);
-        }
-    }
-}
-
-function getAllowedHCaptchaHostnames() {
-    const configured = process.env.HCAPTCHA_ALLOWED_HOSTNAMES;
-
-    if (!configured) {
-        return ["localhost", "clubhouse.test"];
-    }
-
-    return configured
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => {
-            if (/^https?:\/\//i.test(entry)) {
-                return new URL(entry).hostname.toLowerCase();
-            }
-
-            return entry
-                .replace(/^https?:\/\//i, "")
-                .split("/")[0]
-                .split(":")[0]
-                .toLowerCase();
-        });
-}
-
-function _resetUsedHCaptchaTokens() {
-    USED_HCAPTCHA_TOKENS.clear();
-}
-
 
 module.exports = {
-    getCaptcha,
-    verifyCaptcha,
     getUserRole,
     verifyhCaptcha,
     getAllowedHCaptchaHostnames,
-    _resetUsedHCaptchaTokens,
 }

@@ -201,7 +201,14 @@ async function getEventHosts() {
   });
 }
 
-async function addGuest(request) {
+/**
+ * @param {import("express").Request} request
+ * @param {{ discloseDuplicates?: boolean }} [options]
+ *   Authenticated callers get a 409 that names the matching field. Anonymous
+ *   callers get a silent no-op (same 201 as a create) so email/phone existence
+ *   cannot be enumerated.
+ */
+async function addGuest(request, { discloseDuplicates = false } = {}) {
   const OPCODE = "ADD_GUEST";
 
   const firstname = normalizeWhitespace(request.body.firstname);
@@ -237,7 +244,7 @@ async function addGuest(request) {
     "INSERT INTO `membership` (`person_id`,`valid_from`,`valid_until`,`role`) VALUES (?,CURDATE(),DATE_ADD(DATE_FORMAT(NOW(), '%Y-01-01'), INTERVAL 1 YEAR),?)";
 
   try {
-    await sqlconnector.withTransaction(async (connection) => {
+    const { created } = await sqlconnector.withTransaction(async (connection) => {
       const duplicateGuest = await findDuplicateGuest(connection, {
         firstname: formattedFirstName,
         lastname: formattedLastName,
@@ -246,6 +253,9 @@ async function addGuest(request) {
       });
 
       if (duplicateGuest) {
+        if (!discloseDuplicates) {
+          return { created: false };
+        }
         throw buildDuplicateGuestError(duplicateGuest);
       }
 
@@ -261,7 +271,13 @@ async function addGuest(request) {
         person_id,
         GUEST_ROLE_ID,
       ]);
+
+      return { created: true };
     }, { mode: "readWrite" });
+
+    if (!created) {
+      return;
+    }
 
     //Invalidate the active-persons cache so the new guest shows up immediately.
     //Best effort: the cache TTL bounds staleness if the delete fails.
@@ -275,6 +291,12 @@ async function addGuest(request) {
   } catch (error) {
     if (error instanceof RESTError) {
       throw error;
+    }
+
+    // Unique (club, email) race: same oracle as findDuplicateGuest. Swallow
+    // for anonymous so 1062 cannot distinguish an existing address.
+    if (!discloseDuplicates && error && error.errno === 1062) {
+      return;
     }
 
     throw new SQLErrorFactory.getError(OPCODE, error);

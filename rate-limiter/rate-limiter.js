@@ -51,11 +51,6 @@ const writeLimiter = rateLimit({
     message: "Too many write requests. Please try again later.",
 })
 
-const captchaLimiter = rateLimit({
-    windowMs: 2 * 60 * 1000, // 2 minutes
-    max: 20 // limit each IP to 100 requests per windowMs
-})
-
 const guestRegistrationLimiter = rateLimit({
     windowMs: 10 * 60 * 1000,
     limit: (req, res) => (utils.isAuthenticated(res) ? 20 : 5),
@@ -83,7 +78,6 @@ const eventLimiter = rateLimit({
 module.exports = {
     apilimiter: APILimiter,
     writelimiter: writeLimiter,
-    captchalimiter: captchaLimiter,
     guestregistrationlimiter: guestRegistrationLimiter,
     publicreadlimiter: publicReadLimiter,
     eventlimiter: eventLimiter,
