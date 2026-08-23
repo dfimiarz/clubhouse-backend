@@ -118,6 +118,10 @@ router.post('/guests', rateLimiter.guestregistrationlimiter, validate(guestSchem
                     throw new RESTError(422,{ fielderrors: [{ param: "hcaptcha", msg: "Captcha token already used"}]});
                }
 
+               if (verification.unavailable) {
+                    throw new RESTError(422,{ fielderrors: [{ param: "hcaptcha", msg: "Captcha verification unavailable. Please try again."}]});
+               }
+
                if (!verification.hostnameValid) {
                     throw new RESTError(422,{ fielderrors: [{ param: "hcaptcha", msg: "Captcha hostname check failed"}]});
                }

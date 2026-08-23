@@ -125,6 +125,35 @@ describe("Guest registration security", () => {
     });
   });
 
+  it("reports an unavailable verifier instead of a hostname failure", async () => {
+    authController.verifyhCaptcha = async () => ({
+      success: false,
+      replayed: false,
+      unavailable: true,
+      hostname: null,
+      hostnameValid: false,
+    });
+
+    const app = createApp();
+
+    const response = await request(app)
+      .post("/persons/guests")
+      .set("X-Forwarded-For", "198.51.100.18")
+      .send({
+        firstname: "John",
+        lastname: "Doe",
+        email: "john@example.com",
+        agreement: true,
+        hcaptcha: "token-redis-down",
+      });
+
+    expect(response.status).to.equal(422);
+    expect(response.body.fielderrors).to.deep.include({
+      param: "hcaptcha",
+      msg: "Captcha verification unavailable. Please try again.",
+    });
+  });
+
   it("rate limits repeated anonymous guest registrations", async () => {
     const app = createApp();
 

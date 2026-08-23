@@ -127,6 +127,7 @@ async function verifyhCaptcha(token, options = {}) {
         return {
             success: false,
             replayed: false,
+            unavailable: false,
             hostname: null,
             hostnameValid: false,
         };
@@ -138,6 +139,7 @@ async function verifyhCaptcha(token, options = {}) {
         return {
             success: false,
             replayed: true,
+            unavailable: false,
             hostname: null,
             hostnameValid: false,
         };
@@ -147,6 +149,7 @@ async function verifyhCaptcha(token, options = {}) {
         return {
             success: false,
             replayed: false,
+            unavailable: true,
             hostname: null,
             hostnameValid: false,
         };
@@ -158,6 +161,7 @@ async function verifyhCaptcha(token, options = {}) {
         return {
             success: false,
             replayed: false,
+            unavailable: false,
             hostname: null,
             hostnameValid: false,
         };
@@ -194,6 +198,7 @@ async function verifyhCaptcha(token, options = {}) {
     return {
         success,
         replayed: false,
+        unavailable: false,
         hostname: result.hostname || null,
         hostnameValid,
     };

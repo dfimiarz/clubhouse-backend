@@ -110,6 +110,7 @@ describe("verifyhCaptcha", () => {
     expect(result.success).to.equal(false);
     expect(result.hostnameValid).to.equal(false);
     expect(result.replayed).to.equal(false);
+    expect(result.unavailable).to.equal(false);
     expect(fetchCalls).to.have.lengthOf(0);
   });
 
@@ -126,6 +127,7 @@ describe("verifyhCaptcha", () => {
 
     expect(result.success).to.equal(false);
     expect(result.replayed).to.equal(false);
+    expect(result.unavailable).to.equal(true);
     expect(fetchCalls).to.have.lengthOf(0);
   });
 
