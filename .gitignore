@@ -7,6 +7,7 @@ app.flexiable.yaml
 /cred/service_account_file.json
 .firebaserc
 ui-debug.log
+docs/security-review.md
 .pnp.*
 .yarn/*
 !.yarn/patches
