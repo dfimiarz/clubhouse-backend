@@ -213,16 +213,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google-cloud/firestore@npm:^8.6.0":
-  version: 8.6.0
-  resolution: "@google-cloud/firestore@npm:8.6.0"
+"@google-cloud/firestore@npm:^8.7.1":
+  version: 8.7.1
+  resolution: "@google-cloud/firestore@npm:8.7.1"
   dependencies:
     "@opentelemetry/api": "npm:^1.9.0"
     fast-deep-equal: "npm:^3.1.3"
     functional-red-black-tree: "npm:^1.0.1"
     google-gax: "npm:^5.0.1"
     protobufjs: "npm:^7.5.3"
-  checksum: 10c0/0d66b3c4469ff919504925054f6169d4761968b9f932aa373c0dbee642390db9dcc4060b1586494ea6f681c150b5db2198d4eeddf88ea1f34afb51c2f5f1f38b
+  checksum: 10c0/fc86815c7e8f39a733d5685533ee732c3ab37f417b3906b75e962700741607962423a6c362b34d5513f0ece1b3f85c5d7fbc7f3d7ee159ef3d6290b2915ec0c8
   languageName: node
   linkType: hard
 
@@ -291,9 +291,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google-cloud/storage@npm:^7.19.0":
-  version: 7.19.0
-  resolution: "@google-cloud/storage@npm:7.19.0"
+"@google-cloud/storage@npm:^7.22.0":
+  version: 7.22.0
+  resolution: "@google-cloud/storage@npm:7.22.0"
   dependencies:
     "@google-cloud/paginator": "npm:^5.0.0"
     "@google-cloud/projectify": "npm:^4.0.0"
@@ -309,8 +309,7 @@ __metadata:
     p-limit: "npm:^3.0.1"
     retry-request: "npm:^7.0.0"
     teeny-request: "npm:^9.0.0"
-    uuid: "npm:^8.0.0"
-  checksum: 10c0/2951e4a0b3c2f90c28917a9b313a981722a9e5648ca2b6d04f384f816e9107e1637b00c32c5e71ed8d25c7e1840898b616f015b29c2cc1d8d8a22c8630778d8c
+  checksum: 10c0/3f51f2bfe5520d51a2c5076900a5623aabf81e65324302ba59bcaad2ce842300e836dd7e9aa0fe31b0aa6c1d1df5c0e2d3f4c161590213d54ba1a965dbd918f7
   languageName: node
   linkType: hard
 
@@ -1093,23 +1092,23 @@ __metadata:
     chai: "npm:^6.2.2"
     compression: "npm:^1.8.1"
     cors: "npm:^2.8.6"
-    dayjs: "npm:^1.11.21"
+    dayjs: "npm:^1.11.23"
     dotenv: "npm:^17.4.2"
-    eslint: "npm:^10.8.1"
+    eslint: "npm:^10.9.1"
     express: "npm:^5.2.1"
-    express-rate-limit: "npm:^8.6.2"
-    firebase-admin: "npm:^14.2.0"
-    globals: "npm:^17.9.0"
+    express-rate-limit: "npm:^8.7.0"
+    firebase-admin: "npm:^14.3.0"
+    globals: "npm:^17.12.0"
     http-errors: "npm:^2.0.1"
     ioredis: "npm:^5.11.1"
     jsonschema: "npm:^1.5.0"
     mocha: "npm:^11.8.0"
-    mysql2: "npm:^3.23.3"
+    mysql2: "npm:^3.24.3"
     pusher: "npm:^5.3.4"
     supertest: "npm:^7.2.2"
     validator: "npm:^13.15.35"
     winston: "npm:^3.19.0"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.5.4"
   languageName: unknown
   linkType: soft
 
@@ -1283,10 +1282,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dayjs@npm:^1.11.21":
-  version: 1.11.21
-  resolution: "dayjs@npm:1.11.21"
-  checksum: 10c0/bd97dfdc4bfea3c66268635690313828b386faa040fbc1f829ff42a2bd748b72c9d9b3c8f9616ce9e61fcb78923f1461a462c969c54b1084458ae1b715898fb0
+"dayjs@npm:^1.11.23":
+  version: 1.11.23
+  resolution: "dayjs@npm:1.11.23"
+  checksum: 10c0/69ab04bf19c676e44ab50cc2fca223d265f3dafd107151ef3b0f3ad74d360c37caa602abe62f87cb25d90bd9f6bee003698af47df5b0dbf10a998b7b5f3bb3f1
   languageName: node
   linkType: hard
 
@@ -1556,9 +1555,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint@npm:^10.8.1":
-  version: 10.8.1
-  resolution: "eslint@npm:10.8.1"
+"eslint@npm:^10.9.1":
+  version: 10.9.1
+  resolution: "eslint@npm:10.9.1"
   dependencies:
     "@eslint-community/eslint-utils": "npm:^4.8.0"
     "@eslint-community/regexpp": "npm:^4.12.2"
@@ -1597,7 +1596,7 @@ __metadata:
       optional: true
   bin:
     eslint: bin/eslint.js
-  checksum: 10c0/0c4720a43ef2052829db18e37aa79adb5f0a62137bdf4a4f8e9507bbbbf888ba0669fc03e4b7139d8f27b59b051bbbcd0a3988b068c30fa934a766d60a81f599
+  checksum: 10c0/11cfd118dced911d506dc752086a641b45c95996af1f7b2a1914f992bbcdca78bb56cd4dd281595c7a792e1562a49047aa65ce763e3ed809cbde84fe4a08924f
   languageName: node
   linkType: hard
 
@@ -1658,15 +1657,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"express-rate-limit@npm:^8.6.2":
-  version: 8.6.2
-  resolution: "express-rate-limit@npm:8.6.2"
+"express-rate-limit@npm:^8.7.0":
+  version: 8.7.0
+  resolution: "express-rate-limit@npm:8.7.0"
   dependencies:
     debug: "npm:^4.4.3"
     ip-address: "npm:^10.2.0"
   peerDependencies:
     express: ">= 4.11"
-  checksum: 10c0/34dba96f7daa01fe9f73a965c0ddaa73bf83d2cb1691ed5e060451ddacebc10fda211a3cf0c34592cf0360bf00d6d9354f3e11ccda7c899705ec1e43383c3144
+  checksum: 10c0/a83aca1af73280e07695bcb989d40835691b3cbec411782ac56a49d20555008acdcfedd8235c2df63ad8fd60288a9e1a73760a10bba3b3a8160b270f417b05b8
   languageName: node
   linkType: hard
 
@@ -1829,15 +1828,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"firebase-admin@npm:^14.2.0":
-  version: 14.2.0
-  resolution: "firebase-admin@npm:14.2.0"
+"firebase-admin@npm:^14.3.0":
+  version: 14.3.0
+  resolution: "firebase-admin@npm:14.3.0"
   dependencies:
     "@fastify/busboy": "npm:^3.0.0"
     "@firebase/database-compat": "npm:^2.1.4"
     "@firebase/database-types": "npm:^1.0.20"
-    "@google-cloud/firestore": "npm:^8.6.0"
-    "@google-cloud/storage": "npm:^7.19.0"
+    "@google-cloud/firestore": "npm:^8.7.1"
+    "@google-cloud/storage": "npm:^7.22.0"
     fast-deep-equal: "npm:^3.1.1"
     google-auth-library: "npm:^10.6.2"
     jsonwebtoken: "npm:^9.0.0"
@@ -1847,7 +1846,7 @@ __metadata:
       optional: true
     "@google-cloud/storage":
       optional: true
-  checksum: 10c0/757284c0c9ba11556afc73909d99b56d73b322bf47b40d33fe1b1b7bd5fb7cf7729e2b9ca90d4da9839180c75b7edd3459544d976ddc4128119d9f54cc8b91ae
+  checksum: 10c0/091926ed8ed1ca68f193fd919cb3b6e7d3a5338fd8fc829cda8e59fd15462062ad2e5d6f7b57dcf841e49648e73c775afd427e22b32382a9e2323ca98f55a66b
   languageName: node
   linkType: hard
 
@@ -2155,10 +2154,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"globals@npm:^17.9.0":
-  version: 17.9.0
-  resolution: "globals@npm:17.9.0"
-  checksum: 10c0/776116bffb916e462d548c26a44c9a5d8f4e551935a883991e9f5d68cbcb21b63e4c688e36bbc564f97d3025e304d8b2bb0a611ecf944825aeee164898dcfbdd
+"globals@npm:^17.12.0":
+  version: 17.12.0
+  resolution: "globals@npm:17.12.0"
+  checksum: 10c0/8325cf8818c848871d17c32974c2c74e9c5f09c1b0e04421886f64f21e77c3e95f3ba25586743895a73acd860ada151132481d87d44a1f12993ae7758a694d03
   languageName: node
   linkType: hard
 
@@ -3065,9 +3064,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mysql2@npm:^3.23.3":
-  version: 3.23.3
-  resolution: "mysql2@npm:3.23.3"
+"mysql2@npm:^3.24.3":
+  version: 3.24.3
+  resolution: "mysql2@npm:3.24.3"
   dependencies:
     aws-ssl-profiles: "npm:^1.1.2"
     generate-function: "npm:^2.3.1"
@@ -3078,7 +3077,7 @@ __metadata:
     sql-escaper: "npm:^1.5.1"
   peerDependencies:
     "@types/node": ">= 8"
-  checksum: 10c0/a04bf92c4b4badc607f793eef2c12a9f7c7388cfc4a8d2fa4279bb1103af744a5f096cb7b604599df95162a5520bd572064e3628fa584f6a2e23881f320409fb
+  checksum: 10c0/772289ff367c39ad37f5e06c4aece3d8bcae2fe11716f1b9d662708a17d2601721fe1da8a5cf30d27bb60af8b2632fe84f730a492dd69d0bbb744a178cc8f2c2
   languageName: node
   linkType: hard
 
@@ -4045,15 +4044,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"uuid@npm:^8.0.0":
-  version: 8.3.2
-  resolution: "uuid@npm:8.3.2"
-  bin:
-    uuid: dist/bin/uuid
-  checksum: 10c0/bcbb807a917d374a49f475fae2e87fdca7da5e5530820ef53f65ba1d12131bd81a92ecf259cc7ce317cbe0f289e7d79fdfebcef9bfa3087c8c8a2fa304c9be54
-  languageName: node
-  linkType: hard
-
 "uuid@npm:^9.0.0, uuid@npm:^9.0.1":
   version: 9.0.1
   resolution: "uuid@npm:9.0.1"
@@ -4251,9 +4241,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zod@npm:^4.4.3":
-  version: 4.4.3
-  resolution: "zod@npm:4.4.3"
-  checksum: 10c0/7ea31b558e88f9faf44f31dd185e2e1cbf51fed3081787fb96cc2534749b50c0acfc6da7f0922a7353ed092dd358c7d50c28ea96c94d04af64191bd33152eca3
+"zod@npm:^4.5.4":
+  version: 4.5.4
+  resolution: "zod@npm:4.5.4"
+  checksum: 10c0/511a2a4d1a6f875dfdd70a1586989a8b14ef126776cd6218a2c760b9f65f14ef389ec20d92ee1aa4fcb4566d4ff3fa012956044f9dc503510d82e4c756a8ba92
   languageName: node
   linkType: hard
