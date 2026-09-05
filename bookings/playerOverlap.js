@@ -66,7 +66,7 @@ function personDisplayName(row) {
  */
 function formatPlayerOverlapMessage(rows) {
     if (!Array.isArray(rows) || rows.length === 0) {
-        return "A player is already booked at this time.";
+        return "A player is already booked.";
     }
 
     const seen = new Set();
@@ -81,7 +81,7 @@ function formatPlayerOverlapMessage(rows) {
             seen.add(id);
         }
         const court = String(row.court_name ?? "").trim() || "another court";
-        parts.push(`${personDisplayName(row)} is already booked on ${court} at this time.`);
+        parts.push(`${personDisplayName(row)} is already booked on ${court}.`);
     });
 
     return parts.join(" ");
@@ -158,8 +158,8 @@ async function lockRosterIfNeeded(connection, booking) {
 
 /**
  * Reject a member-group write when a roster player already has an overlapping
- * member session. Role of the requester is not considered. Locks the roster
- * first when the check applies.
+ * member session, or another session that day that has not ended. Role of the
+ * requester is not considered. Locks the roster first when the check applies.
  *
  * @param {*} connection
  * @param {{ date: string, start: string, end: string, group_id?: unknown, players?: Array }} booking

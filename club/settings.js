@@ -27,14 +27,15 @@ const SETTINGS = {
         public: true,
         label: "Show back-to-back rebooking prompt",
     },
-    // On by default: a person cannot sit on two member-group sessions
-    // (activity_group = 1) at the same time. Club sessions are unaffected.
-    // Opt out per club with '0'.
+    // On by default: a person cannot have two open member-group sessions
+    // (activity_group = 1) on the same date — currently playing or still
+    // upcoming. Ended sessions do not block a repeater booking. Club
+    // sessions are unaffected. Opt out per club with '0'.
     prevent_concurrent_member_bookings: {
         type: "boolean",
         default: true,
         public: true,
-        label: "Prevent overlapping member bookings for the same player",
+        label: "Prevent a player from having more than one open member booking on the same day",
     },
     // On by default: a guest-only roster is rejected unless the club opts out.
     require_guests_accompanied_by_member: {

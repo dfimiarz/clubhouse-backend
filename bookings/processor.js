@@ -165,7 +165,8 @@ async function changeSessionTime(id, cmd) {
             notes: booking.notes,
             bumpable: booking.bumpable,
             type: booking.type,
-            players: Array.from(booking.players)
+            players: Array.from(booking.players),
+            origin_activity_id: booking.origin_activity_id ?? booking.id,
         }
 
         const movedbooking = await getNewBooking(connection, initValues);
@@ -291,7 +292,8 @@ async function changeCourt(id, cmd) {
                 notes: booking.notes,
                 bumpable: booking.bumpable,
                 type: booking.type,
-                players: Array.from(booking.players)
+                players: Array.from(booking.players),
+                origin_activity_id: booking.origin_activity_id ?? booking.id,
             }
 
         }
@@ -309,7 +311,8 @@ async function changeCourt(id, cmd) {
                 notes: booking.notes,
                 bumpable: booking.bumpable,
                 type: booking.type,
-                players: Array.from(booking.players)
+                players: Array.from(booking.players),
+                origin_activity_id: booking.origin_activity_id ?? booking.id,
             }
 
 

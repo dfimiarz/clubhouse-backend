@@ -89,6 +89,10 @@ describe("personIdsFromPlayers", () => {
 });
 
 describe("formatPlayerOverlapMessage", () => {
+  it("falls back when there are no rows", () => {
+    expect(formatPlayerOverlapMessage([])).to.equal("A player is already booked.");
+  });
+
   it("names the player and court", () => {
     expect(
       formatPlayerOverlapMessage([
@@ -99,7 +103,7 @@ describe("formatPlayerOverlapMessage", () => {
           court_name: "Court 3",
         },
       ])
-    ).to.equal("Jane Doe is already booked on Court 3 at this time.");
+    ).to.equal("Jane Doe is already booked on Court 3.");
   });
 
   it("lists each person once", () => {
@@ -125,13 +129,13 @@ describe("formatPlayerOverlapMessage", () => {
         },
       ])
     ).to.equal(
-      "Jane Doe is already booked on Court 3 at this time. John Smith is already booked on Court 1 at this time."
+      "Jane Doe is already booked on Court 3. John Smith is already booked on Court 1."
     );
   });
 
   it("falls back when the row has no name", () => {
     expect(formatPlayerOverlapMessage([{}])).to.equal(
-      "A player is already booked on another court at this time."
+      "A player is already booked on another court."
     );
   });
 });

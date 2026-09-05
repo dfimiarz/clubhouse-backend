@@ -30,6 +30,7 @@ const booking_q = `SELECT c.id AS court_id,
                         a.updated,
                         a.notes,
                         a.id,
+                        a.origin_activity_id,
                         MD5(a.updated) AS etag,
                         c.name as court_name,
                         cl.time_zone,
@@ -115,7 +116,9 @@ const overlap_check_q = `
     AND date = ?
     AND active = 1 FOR UPDATE`;
 
-// date, group, person ids, end, start — exclusive endpoints, any court
+// date, group, person ids, end, start — exclusive endpoints, any court.
+// Also matches a same-date session that has not ended in club time, so a
+// player cannot take a second member match while one is still open.
 const player_overlap_check_q = `
     SELECT
         a.id,
@@ -133,6 +136,8 @@ const player_overlap_check_q = `
             JOIN
         court c ON c.id = a.court
             JOIN
+        club cl ON cl.id = c.club
+            JOIN
         participant p ON p.activity = a.id
             JOIN
         person ON person.id = p.person
@@ -141,8 +146,10 @@ const player_overlap_check_q = `
         AND a.active = 1
         AND at.group = ?
         AND p.person IN ?
-        AND ? > a.start
-        AND ? < a.end
+        AND (
+            (? > a.start AND ? < a.end)
+            OR TIMESTAMP(a.date, a.end) > CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone)
+        )
     FOR UPDATE`;
 
 
@@ -164,6 +171,7 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
     }
 
     const bookingDate = booking_result[0]['date'];
+    const originActivityId = Number(booking_result[0]['origin_activity_id']);
 
     // Param order matches player_q placeholders: valid_from, valid_until, activity id
     const players_result = await sqlconnector.runQuery(
@@ -204,6 +212,9 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
         updated: booking_result[0]['updated'],
         notes: booking_result[0]['notes'],
         etag: booking_result[0]['etag'],
+        origin_activity_id: Number.isSafeInteger(originActivityId) && originActivityId > 0
+            ? originActivityId
+            : null,
         court_id: booking_result[0]['court_id'],
         court_name: booking_result[0]['court_name'],
         time_zone: booking_result[0]['time_zone'],
@@ -242,15 +253,28 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
  */
 async function insertBooking(connection, booking) {
 
-    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start\`, \`end\`, \`bumpable\`, \`active\`, \`notes\`)
-    VALUES (?, ?, ?, ?, ?, ?, 1, ?)`;
+    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start\`, \`end\`, \`bumpable\`, \`active\`, \`notes\`, \`origin_activity_id\`)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`;
 
     const insertPlayersQ =
         "INSERT INTO participant (`activity`, `person`, `status`, `type`) VALUES ?";
 
-    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.start, booking.end, booking.bumpable, booking.notes])
+    const parsedOrigin = Number(booking.origin_activity_id);
+    const originId = Number.isSafeInteger(parsedOrigin) && parsedOrigin > 0
+        ? parsedOrigin
+        : null;
+
+    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.start, booking.end, booking.bumpable, booking.notes, originId])
 
     const activity_id = activity_result.insertId;
+
+    if (originId == null) {
+        await sqlconnector.runQuery(
+            connection,
+            "UPDATE `activity` SET `origin_activity_id` = ? WHERE `id` = ?",
+            [activity_id, activity_id]
+        );
+    }
 
     const playersArrays = booking.players.map((player) => [
         activity_id,
@@ -286,6 +310,7 @@ async function getNewBooking(connection, initValues) {
         bumpable: initValues.bumpable,
         type: initValues.type,
         players: Array.from(initValues.players),
+        origin_activity_id: initValues.origin_activity_id ?? null,
         active: 1,
         utc_created: null,
         utc_updated: null,
@@ -374,8 +399,9 @@ async function checkOverlap(connection, end, start, court_id, date) {
 }
 
 /**
- * Active member-group bookings that share a roster person and overlap
- * [start, end) on any court. Exclusive endpoints match checkOverlap.
+ * Active member-group bookings that share a roster person and either
+ * overlap [start, end) on any court (exclusive endpoints, same as
+ * checkOverlap) or have not yet ended in club time.
  *
  * @param {*} connection
  * @param {{ date: string, start: string, end: string, personIds: number[], groupId: number }} params

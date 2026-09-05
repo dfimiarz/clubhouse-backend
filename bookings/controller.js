@@ -14,6 +14,7 @@ const { transactionType } = require("../utils/dbutils");
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const clubcontroller = require("../club/controller");
 const { suggestPlayerTypes, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
+const { memberSessionRuleError } = require("./sessionRules");
 const {
   assertNoConcurrentMemberBookings,
   lockRosterIfNeeded,
@@ -167,7 +168,8 @@ async function getBookingsForDate(date, filters = {}) {
                                 at.same_day_only AS same_day_only,
                                 at.min_participant AS min_participant,
                                 at.group AS group_id,
-                                ag.utility_factor AS utility
+                                ag.utility_factor AS utility,
+                                activity.origin_activity_id
                             FROM
                                 activity
                                     JOIN
@@ -243,6 +245,7 @@ async function getBookingsForDate(date, filters = {}) {
         min_participant: element.min_participant,
         group_id: element.group_id,
         utility: element.utility,
+        origin_activity_id: element.origin_activity_id,
       });
     });
 
@@ -473,6 +476,11 @@ async function addBooking(request) {
         throw new RESTError(422, "Create permission denied: " + errors[0]);
       }
 
+      const ruleError = memberSessionRuleError(booking);
+      if (ruleError) {
+        throw new RESTError(422, ruleError);
+      }
+
       // People before any activity FOR UPDATE (same order as CHANGE_TIME / CHANGE_COURT)
       await lockRosterIfNeeded(connection, booking);
 
@@ -698,8 +706,8 @@ async function findClubPersonIds(personIds) {
  * Suggest participant types for the given people from today's member sessions.
  * Loads member-group bookings (activity_group = 1) on the club-local date that
  * include at least one requested club person. Club programs and support
- * blocks are ignored. Each row still has the full roster so player count and
- * duration are complete; only 1–4 player rosters contribute to the factor.
+ * blocks are ignored. Court/time-move rows that share origin_activity_id
+ * count as one session.
  *
  * Unknown ids (not a person at this club) still get a row with
  * player_type_id null. A known person with no member sessions today is a

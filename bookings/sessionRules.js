@@ -22,7 +22,7 @@
  *   4 players and all non-repeaters.
  */
 
-const { PLAYER_TYPE_IDS } = require("./playerType");
+const { PLAYER_TYPE_IDS, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 
 const MATCH_PLAYER_TYPE_IDS = new Set([
   PLAYER_TYPE_IDS.NON_REPEATER,
@@ -100,8 +100,35 @@ function resolveSessionRules(playerTypes) {
   };
 }
 
+/** Validate member play at creation; club events use their own duration policy. */
+function memberSessionRuleError(booking) {
+  if (Number(booking.group_id) !== MEMBER_ACTIVITY_GROUP_ID) {
+    return null;
+  }
+
+  let rule;
+  try {
+    rule = resolveSessionRules(booking.players?.map((player) => player.player_type_id));
+  } catch {
+    return "Invalid player type for a member booking";
+  }
+
+  const duration = (Number(booking.utc_end) - Number(booking.utc_start)) / 60;
+  if (!Number.isFinite(duration) || duration < 5 || duration > 180) {
+    return "Member sessions must be between 5 and 180 minutes long";
+  }
+
+  const overridesRule = duration > rule.max_duration_min
+    || (rule.bumpable && Number(booking.bumpable) !== 1);
+  if (overridesRule && !(typeof booking.notes === "string" && booking.notes.trim())) {
+    return "Explain the session rule override in the note";
+  }
+  return null;
+}
+
 module.exports = {
   MATCH_PLAYER_TYPE_IDS,
   isFullAllotment,
   resolveSessionRules,
+  memberSessionRuleError,
 };
