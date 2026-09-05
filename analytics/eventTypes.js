@@ -65,6 +65,21 @@ const EVENTS = {
             })
             .strict(),
     },
+    // Player dialog Save after manually changing an existing/suggested type.
+    booking_player_type_changed: {
+        props: z
+            .object({
+                person_id: personId,
+                previous_player_type: positiveInt,
+                player_type: positiveInt,
+                slot_index: slotIndex,
+            })
+            .strict()
+            .refine((props) => props.previous_player_type !== props.player_type, {
+                message: "Player type must change",
+                path: ["player_type"],
+            }),
+    },
     booking_player_removed: {
         props: z
             .object({

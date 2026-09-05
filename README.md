@@ -196,6 +196,7 @@ Match booking funnel (one `flow_id` per booking screen session):
 | --- | --- | --- |
 | `booking_started` | booking screen opens | `prefilled_player_count` |
 | `booking_player_set` | player dialog Save (add or edit) | `person_id`, `player_type`, `slot_index` |
+| `booking_player_type_changed` | player dialog Save after manually changing an existing or suggested player type | `person_id`, `previous_player_type`, `player_type`, `slot_index` |
 | `booking_player_removed` | a player slot is removed | `person_id`, `slot_index` |
 | `booking_players_cleared` | Clear all with players present | `person_ids` |
 | `booking_activity_selected` | user changes activity | `activity_type` |

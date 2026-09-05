@@ -76,6 +76,47 @@ describe("analytics events", function () {
   });
 
   describe("POST /events", function () {
+    it("records a player type change with the authenticated actor", async function () {
+      const props = {
+        person_id: 12,
+        previous_player_type: 1,
+        player_type: 2,
+        slot_index: 0,
+      };
+      const response = await request(createApp()).post("/events/batch").send({
+        events: [validBody({ name: "booking_player_type_changed", props })],
+      });
+
+      expect(response.status).to.equal(202);
+      expect(response.body.accepted).to.equal(1);
+      expect(recorded[0]).to.include({
+        name: "booking_player_type_changed",
+        actor: "staff@example.com",
+        flowId: "abc123",
+      });
+      expect(recorded[0].props).to.deep.equal(props);
+    });
+
+    it("rejects unchanged or invalid player type transitions", async function () {
+      for (const change of [
+        { player_type: 1 },
+        { previous_player_type: null },
+        { previous_player_type: 0 },
+        { player_type: 1.5 },
+        { slot_index: 4 },
+      ]) {
+        const response = await request(createApp()).post("/events").send(validBody({
+          name: "booking_player_type_changed",
+          props: {
+            person_id: 12, previous_player_type: 1, player_type: 2, slot_index: 0,
+            ...change,
+          },
+        }));
+        expect(response.status).to.equal(400);
+      }
+      expect(recorded).to.be.empty;
+    });
+
     it("accepts a valid event and records it", async function () {
       const response = await request(createApp()).post("/events").send(validBody());
 
