@@ -94,8 +94,10 @@ describe("member rules in addBooking", () => {
     expect(inserted).to.have.length(1);
     expect(insertQuery).to.include("start_at");
     expect(insertQuery).to.include("FROM_UNIXTIME");
-    expect(inserted[0][5]).to.equal(9 * 3600);
-    expect(inserted[0][6]).to.equal(9 * 3600 + 30 * 60);
+    expect(insertQuery).to.not.include("`start`");
+    expect(insertQuery).to.not.include("`end`");
+    expect(inserted[0][3]).to.equal(9 * 3600);
+    expect(inserted[0][4]).to.equal(9 * 3600 + 30 * 60);
     expect(overlapQuery).to.include("INTERVAL 2 DAY");
     expect(overlapQuery).to.include("start_at >=");
     expect(overlapValues).to.deep.equal([

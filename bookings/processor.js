@@ -55,8 +55,7 @@ async function endSession(id, cmd) {
 
     const etag = cmd.hash;
 
-    // Dual-write UTC instant and club-local TIME (TIME wraps after midnight).
-    const update_activity_q = `UPDATE activity SET end_at = FROM_UNIXTIME(?), end = TIME(CONVERT_TZ(FROM_UNIXTIME(?), 'UTC', ?)) where id = ?`
+    const update_activity_q = `UPDATE activity SET end_at = FROM_UNIXTIME(?) where id = ?`
 
     return sqlconnector.withTransaction(async (connection) => {
         const booking = await getBooking(connection, id, transactionType.WRITE_TRANSACTION);
@@ -84,7 +83,7 @@ async function endSession(id, cmd) {
             throw new RESTError(422, "Permission to end denied: " + errors[0]);
         }
 
-        await sqlconnector.runExecute(connection, update_activity_q, [booking.utc_req_time, booking.utc_req_time, booking.time_zone, id])
+        await sqlconnector.runExecute(connection, update_activity_q, [booking.utc_req_time, id])
 
         log(appLogLevels.INFO, "Booking ended: " + JSON.stringify(booking));
 
@@ -299,9 +298,9 @@ async function changeCourt(id, cmd) {
         }
         else {
 
-            const end_booking_q = `UPDATE activity SET end = ?, end_at = FROM_UNIXTIME(?) where id = ?`
+            const end_booking_q = `UPDATE activity SET end_at = FROM_UNIXTIME(?) where id = ?`
 
-            await sqlconnector.runExecute(connection, end_booking_q, [booking.loc_req_time, booking.utc_req_time, id])
+            await sqlconnector.runExecute(connection, end_booking_q, [booking.utc_req_time, id])
 
             initValues = {
                 court: new_court,

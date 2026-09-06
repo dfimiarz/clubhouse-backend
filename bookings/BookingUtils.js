@@ -258,8 +258,8 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
  */
 async function insertBooking(connection, booking) {
 
-    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start\`, \`end\`, \`start_at\`, \`end_at\`, \`bumpable\`, \`active\`, \`notes\`, \`origin_activity_id\`)
-    VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, 1, ?, ?)`;
+    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start_at\`, \`end_at\`, \`bumpable\`, \`active\`, \`notes\`, \`origin_activity_id\`)
+    VALUES (?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, 1, ?, ?)`;
 
     const insertPlayersQ =
         "INSERT INTO participant (`activity`, `person`, `status`, `type`) VALUES ?";
@@ -273,7 +273,7 @@ async function insertBooking(connection, booking) {
         throw new Error("Unable to resolve booking instants to UTC");
     }
 
-    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.start, booking.end, booking.utc_start, booking.utc_end, booking.bumpable, booking.notes, originId])
+    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.utc_start, booking.utc_end, booking.bumpable, booking.notes, originId])
 
     const activity_id = activity_result.insertId;
 
