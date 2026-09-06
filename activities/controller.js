@@ -16,10 +16,10 @@ async function getActivitiesForDates(from, to) {
             a.updated,
             c.id as court_id,
             c.name as court_name,
-            a.start,
-            a.end,
-            time_to_sec(a.start) DIV 60 as start_min,
-            time_to_sec(a.end) DIV 60 as end_min,
+            TIME(CONVERT_TZ(a.start_at, 'UTC', cl.time_zone)) as start,
+            TIME(CONVERT_TZ(a.end_at, 'UTC', cl.time_zone)) as end,
+            TIMESTAMPDIFF(MINUTE, TIMESTAMP(a.date, '00:00:00'), CONVERT_TZ(a.start_at, 'UTC', cl.time_zone)) as start_min,
+            TIMESTAMPDIFF(MINUTE, TIMESTAMP(a.date, '00:00:00'), CONVERT_TZ(a.end_at, 'UTC', cl.time_zone)) as end_min,
             DATE_FORMAT(a.date, GET_FORMAT(DATE, 'ISO')) AS date,
             dayofweek(a.date) as day_of_week,
             at.id as type_id,
@@ -33,6 +33,8 @@ async function getActivitiesForDates(from, to) {
                 JOIN
             court c ON c.id = a.court
                 JOIN
+            club cl ON cl.id = c.club
+                JOIN
             activity_type at ON at.id = a.type
                 JOIN
             activity_group ag ON ag.id = at.group
@@ -40,7 +42,7 @@ async function getActivitiesForDates(from, to) {
             a.active = 1
                 AND a.date BETWEEN ? AND ? 
                 AND c.club = ?
-        ORDER BY date , start`;
+        ORDER BY date , a.start_at`;
 
     try {
         const result = await sqlconnector.withConnection(async (connection) => {

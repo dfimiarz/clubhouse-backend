@@ -89,23 +89,24 @@ async function getPublicBookingsForDate(date) {
   const query = `
     SELECT
       court,
-      DATE_FORMAT(date, '%Y-%m-%d') AS date,
-      start,
-      end,
-      TIME_TO_SEC(start) DIV 60 AS start_min,
-      TIME_TO_SEC(end) DIV 60 AS end_min,
+      DATE_FORMAT(activity.date, '%Y-%m-%d') AS date,
+      TIME(CONVERT_TZ(activity.start_at, 'UTC', cl.time_zone)) AS start,
+      TIME(CONVERT_TZ(activity.end_at, 'UTC', cl.time_zone)) AS end,
+      TIMESTAMPDIFF(MINUTE, TIMESTAMP(activity.date, '00:00:00'), CONVERT_TZ(activity.start_at, 'UTC', cl.time_zone)) AS start_min,
+      TIMESTAMPDIFF(MINUTE, TIMESTAMP(activity.date, '00:00:00'), CONVERT_TZ(activity.end_at, 'UTC', cl.time_zone)) AS end_min,
       at.desc AS booking_type_desc,
       at.lbl AS booking_type_lbl,
       at.calendar_style AS calendar_style,
       ag.utility_factor AS utility
     FROM activity
     JOIN court c ON c.id = activity.court
+    JOIN club cl ON cl.id = c.club
     JOIN activity_type at ON at.id = activity.type
     JOIN activity_group ag ON at.\`group\` = ag.id
-    WHERE date = ?
-      AND active = 1
+    WHERE activity.date = ?
+      AND activity.active = 1
       AND c.club = ?
-    ORDER BY court, start, end
+    ORDER BY court, activity.start_at, activity.end_at
   `;
 
   try {

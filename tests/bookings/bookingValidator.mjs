@@ -71,6 +71,19 @@ describe("create permission", () => {
 
     expect(errors).to.deep.equal([]);
   });
+
+  it("rejects a booking whose local time did not convert to UTC", () => {
+    const errors = checkPermission(
+      "create",
+      booking({
+        schedule_id: 1,
+        utc_start: null,
+        utc_end: 1900,
+      })
+    );
+
+    expect(errors).to.deep.equal(["Booking time invalid"]);
+  });
 });
 
 describe("same-day-only booking", () => {

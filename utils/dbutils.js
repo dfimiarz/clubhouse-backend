@@ -46,6 +46,9 @@ function parseJsonColumn(value) {
  * @returns {number}
  */
 function toFiniteNumber(value) {
+    if (value == null) {
+        return NaN;
+    }
     const n = typeof value === "number" ? value : Number(value);
     return Number.isFinite(n) ? n : NaN;
 }

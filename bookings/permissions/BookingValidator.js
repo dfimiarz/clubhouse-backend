@@ -76,6 +76,12 @@ function checkSameDayOnlyBooking({ loc_req_date, numeric_date, same_day_only }) 
         : null;
 }
 
+function checkUtcInstants({ utc_start, utc_end }) {
+    return Number.isFinite(toUnix(utc_start)) && Number.isFinite(toUnix(utc_end))
+        ? null
+        : "Booking time invalid";
+}
+
 function checkStartAndEndTime({utc_start,utc_end}){
     return toUnix(utc_start) >= toUnix(utc_end) ? "Session must start before ending " : null;
 }
@@ -151,7 +157,7 @@ function isNotFreshBooking({utc_start,utc_req_time}){
 // create does not run checkBookingNotEnded: Fast rebook and other
 // backdated follow-ons are allowed to occupy a slot whose end is already past.
 const validators = {
-                     "create" : [ checkCourtSchedule, checkSameDayOnlyBooking, checkStartAndEndTime, checkBookingDuration ],
+                     "create" : [ checkCourtSchedule, checkSameDayOnlyBooking, checkUtcInstants, checkStartAndEndTime, checkBookingDuration ],
                      "cancel" : [ isActive, checkCancelTimeframe],
                      "end": [ isActive, isOngoing, isNotFreshBooking],
                      "move": [ isActive, checkBookingNotEnded ],

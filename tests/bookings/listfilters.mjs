@@ -32,16 +32,18 @@ describe("buildBookingListFilters", () => {
       .be.true;
   });
 
-  it("uses full club-local datetimes for ended bounds", () => {
+  it("uses UTC instants for ended bounds", () => {
     const result = buildBookingListFilters("2026-08-07", {
       endedMinAgo: 5,
       endedMaxAgo: 20,
     });
 
     const joined = result.filterPredicates.join("\n");
-    expect(joined).to.include("TIMESTAMP(activity.date, activity.end)");
+    expect(joined).to.include("activity.end_at");
+    expect(joined).to.include("UTC_TIMESTAMP()");
     expect(joined).to.include("INTERVAL ? MINUTE");
     expect(joined).to.not.include("TIME_TO_SEC");
+    expect(joined).to.not.include("TIMESTAMP(activity.date, activity.end)");
     expect(result.filterParams).to.deep.equal([20, 5]);
   });
 

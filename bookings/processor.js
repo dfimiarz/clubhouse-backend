@@ -55,8 +55,8 @@ async function endSession(id, cmd) {
 
     const etag = cmd.hash;
 
-    //Time will be converted from UTC (server) to club time zone
-    const update_activity_q = `UPDATE activity SET end = TIME(convert_tz(from_unixtime(?),@@GLOBAL.time_zone,? )) where id = ?`
+    // Dual-write UTC instant and club-local TIME (TIME wraps after midnight).
+    const update_activity_q = `UPDATE activity SET end_at = FROM_UNIXTIME(?), end = TIME(CONVERT_TZ(FROM_UNIXTIME(?), 'UTC', ?)) where id = ?`
 
     return sqlconnector.withTransaction(async (connection) => {
         const booking = await getBooking(connection, id, transactionType.WRITE_TRANSACTION);
@@ -84,7 +84,7 @@ async function endSession(id, cmd) {
             throw new RESTError(422, "Permission to end denied: " + errors[0]);
         }
 
-        await sqlconnector.runExecute(connection, update_activity_q, [booking.utc_req_time, booking.time_zone, id])
+        await sqlconnector.runExecute(connection, update_activity_q, [booking.utc_req_time, booking.utc_req_time, booking.time_zone, id])
 
         log(appLogLevels.INFO, "Booking ended: " + JSON.stringify(booking));
 
@@ -179,7 +179,7 @@ async function changeSessionTime(id, cmd) {
         }
 
         //START Check for overlapping bookings
-        const overlapping_bookings = await checkOverlap(connection, movedbooking.end, movedbooking.start, movedbooking.court_id, movedbooking.date);
+        const overlapping_bookings = await checkOverlap(connection, movedbooking.utc_end, movedbooking.utc_start, movedbooking.court_id);
 
         if (overlapping_bookings.length !== 0) {
             const overlap_record = {
@@ -299,9 +299,9 @@ async function changeCourt(id, cmd) {
         }
         else {
 
-            const end_booking_q = `UPDATE activity SET end = ? where id = ?`
+            const end_booking_q = `UPDATE activity SET end = ?, end_at = FROM_UNIXTIME(?) where id = ?`
 
-            await sqlconnector.runExecute(connection, end_booking_q, [booking.loc_req_time, id])
+            await sqlconnector.runExecute(connection, end_booking_q, [booking.loc_req_time, booking.utc_req_time, id])
 
             initValues = {
                 court: new_court,
@@ -328,7 +328,7 @@ async function changeCourt(id, cmd) {
         }
 
         //START Check for overlapping bookings
-        const overlapping_bookings = await checkOverlap(connection, movedbooking.end, movedbooking.start, movedbooking.court_id, movedbooking.date);
+        const overlapping_bookings = await checkOverlap(connection, movedbooking.utc_end, movedbooking.utc_start, movedbooking.court_id);
 
         if (overlapping_bookings.length !== 0) {
             const overlap_record = {

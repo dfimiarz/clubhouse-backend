@@ -4,18 +4,18 @@ const { formatQuery, transactionType, toFiniteNumber } = require('../utils/dbuti
 const CLUB_ID = process.env.CLUB_ID;
 
 const booking_q = `SELECT c.id AS court_id,
-                        UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(a.date, ' ', a.start),cl.time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_start,
-                        UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(a.date, ' ', a.end),cl.time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_end,
+                        UNIX_TIMESTAMP(a.start_at) DIV 1 AS utc_start,
+                        UNIX_TIMESTAMP(a.end_at) DIV 1 AS utc_end,
                         UNIX_TIMESTAMP(a.created) DIV 1 AS utc_created,
                         UNIX_TIMESTAMP(a.updated) DIV 1 AS utc_updated,
-                        UNIX_TIMESTAMP(CONVERT_TZ(a.date,cl.time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_day_start,
-                        UNIX_TIMESTAMP(NOW()) DIV 1 AS utc_req_time,
-                        CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone) AS DATE) + 0 AS loc_req_date,
-                        CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone) AS TIME) AS loc_req_time,
+                        UNIX_TIMESTAMP(CONVERT_TZ(a.date,cl.time_zone,'UTC')) DIV 1 AS utc_day_start,
+                        UNIX_TIMESTAMP(UTC_TIMESTAMP()) DIV 1 AS utc_req_time,
+                        CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', cl.time_zone) AS DATE) + 0 AS loc_req_date,
+                        CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', cl.time_zone) AS TIME) AS loc_req_time,
                         DATE_FORMAT(a.date,"%Y-%m-%d" ) as date,
                         a.date + 0 as numeric_date,
-                        a.start as start,
-                        a.end as end,
+                        TIME(CONVERT_TZ(a.start_at, 'UTC', cl.time_zone)) as start,
+                        TIME(CONVERT_TZ(a.end_at, 'UTC', cl.time_zone)) as end,
                         a.active,
                         a.type,
                         at.desc AS booking_type_desc,
@@ -76,12 +76,12 @@ const player_q = `SELECT
 
 // Named placeholders (mysql2 namedPlaceholders) — same value reused under one name.
 const booking_time_q = `SELECT 
-                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:start),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_start,
-                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:end),time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_end,
-                            UNIX_TIMESTAMP(CONVERT_TZ(:date,time_zone,@@GLOBAL.time_zone)) DIV 1 AS utc_day_start,
-                            UNIX_TIMESTAMP(NOW()) DIV 1 AS utc_req_time,
-                            CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, time_zone) AS DATE) + 0 AS loc_req_date,
-                            CAST(CONVERT_TZ(NOW(), @@GLOBAL.time_zone, time_zone) AS TIME) AS loc_req_time,
+                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:start),time_zone,'UTC')) DIV 1 AS utc_start,
+                            UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:end),time_zone,'UTC')) DIV 1 AS utc_end,
+                            UNIX_TIMESTAMP(CONVERT_TZ(:date,time_zone,'UTC')) DIV 1 AS utc_day_start,
+                            UNIX_TIMESTAMP(UTC_TIMESTAMP()) DIV 1 AS utc_req_time,
+                            CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', time_zone) AS DATE) + 0 AS loc_req_date,
+                            CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', time_zone) AS TIME) AS loc_req_time,
                             CAST(:date AS DATE) + 0 AS numeric_date,
                             time_zone,
                             s.id AS schedule_id
@@ -103,29 +103,30 @@ const booking_time_q = `SELECT
                             WHERE
                                 club.id = :club_id`;
 
-//end,start,court,date
+// utcStart, utcEnd, utcStart, court. Lower-bound start_at by 2 days (full-day
+// session plus DST) so FOR UPDATE does not scan court history.
 const overlap_check_q = `
     SELECT 
     id
     FROM
     activity
     WHERE
-    ? > start
-    AND ? < end
+    start_at >= FROM_UNIXTIME(?) - INTERVAL 2 DAY
+    AND start_at < FROM_UNIXTIME(?)
+    AND end_at > FROM_UNIXTIME(?)
     AND court = ?
-    AND date = ?
     AND active = 1 FOR UPDATE`;
 
-// date, group, person ids, end, start — exclusive endpoints, any court.
-// Also matches a same-date session that has not ended in club time, so a
-// player cannot take a second member match while one is still open.
+// date, group, person ids, utc_end, utc_start — exclusive endpoints, any court.
+// Also matches a same-date session that has not ended, so a player cannot
+// take a second member match while one is still open.
 const player_overlap_check_q = `
     SELECT
         a.id,
         a.court,
         c.name AS court_name,
-        a.start,
-        a.end,
+        TIME(CONVERT_TZ(a.start_at, 'UTC', cl.time_zone)) AS start,
+        TIME(CONVERT_TZ(a.end_at, 'UTC', cl.time_zone)) AS end,
         p.person AS person_id,
         person.firstname,
         person.lastname
@@ -147,8 +148,8 @@ const player_overlap_check_q = `
         AND at.group = ?
         AND p.person IN ?
         AND (
-            (? > a.start AND ? < a.end)
-            OR TIMESTAMP(a.date, a.end) > CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone)
+            (FROM_UNIXTIME(?) > a.start_at AND FROM_UNIXTIME(?) < a.end_at)
+            OR a.end_at > UTC_TIMESTAMP()
         )
     FOR UPDATE`;
 
@@ -253,8 +254,8 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
  */
 async function insertBooking(connection, booking) {
 
-    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start\`, \`end\`, \`bumpable\`, \`active\`, \`notes\`, \`origin_activity_id\`)
-    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`;
+    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start\`, \`end\`, \`start_at\`, \`end_at\`, \`bumpable\`, \`active\`, \`notes\`, \`origin_activity_id\`)
+    VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, 1, ?, ?)`;
 
     const insertPlayersQ =
         "INSERT INTO participant (`activity`, `person`, `status`, `type`) VALUES ?";
@@ -264,7 +265,11 @@ async function insertBooking(connection, booking) {
         ? parsedOrigin
         : null;
 
-    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.start, booking.end, booking.bumpable, booking.notes, originId])
+    if (!Number.isFinite(booking.utc_start) || !Number.isFinite(booking.utc_end)) {
+        throw new Error("Unable to resolve booking instants to UTC");
+    }
+
+    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.start, booking.end, booking.utc_start, booking.utc_end, booking.bumpable, booking.notes, originId])
 
     const activity_id = activity_result.insertId;
 
@@ -380,15 +385,14 @@ async function getNewBooking(connection, initValues) {
 /**
  * 
  * @param {*} connection 
- * @param { string } end 
- * @param { string } start 
+ * @param { number } utcEnd Unix end of the proposed interval
+ * @param { number } utcStart Unix start of the proposed interval
  * @param { number } court_id 
- * @param { string } date 
  * @returns { number [] }  An array of overlapping booking ids
  */
-async function checkOverlap(connection, end, start, court_id, date) {
+async function checkOverlap(connection, utcEnd, utcStart, court_id) {
 
-    const overlap_result = await sqlconnector.runQuery(connection, overlap_check_q, [end, start, court_id, date]);
+    const overlap_result = await sqlconnector.runQuery(connection, overlap_check_q, [utcStart, utcEnd, utcStart, court_id]);
 
     if (!Array.isArray(overlap_result)) {
         throw new Error("Unable to check booking overlap");
@@ -400,14 +404,14 @@ async function checkOverlap(connection, end, start, court_id, date) {
 
 /**
  * Active member-group bookings that share a roster person and either
- * overlap [start, end) on any court (exclusive endpoints, same as
- * checkOverlap) or have not yet ended in club time.
+ * overlap [utcStart, utcEnd) on any court (exclusive endpoints, same as
+ * checkOverlap) or have not yet ended on the same business date.
  *
  * @param {*} connection
- * @param {{ date: string, start: string, end: string, personIds: number[], groupId: number }} params
+ * @param {{ date: string, utcStart: number, utcEnd: number, personIds: number[], groupId: number }} params
  * @returns {Promise<Array<{ id: number, court: number, court_name: string, start: string, end: string, person_id: number, firstname: string, lastname: string }>>}
  */
-async function checkPlayerOverlap(connection, { date, start, end, personIds, groupId }) {
+async function checkPlayerOverlap(connection, { date, utcStart, utcEnd, personIds, groupId }) {
     if (!Array.isArray(personIds) || personIds.length === 0) {
         return [];
     }
@@ -415,7 +419,7 @@ async function checkPlayerOverlap(connection, { date, start, end, personIds, gro
     const overlap_result = await sqlconnector.runQuery(
         connection,
         player_overlap_check_q,
-        [date, groupId, [personIds], end, start]
+        [date, groupId, [personIds], utcEnd, utcStart]
     );
 
     if (!Array.isArray(overlap_result)) {

@@ -20,7 +20,7 @@ const playerStatsProcessor = async (name, from, to) => {
     const time_played_q =
         `select 
         DATE_FORMAT(a.date,GET_FORMAT(DATE,'ISO')) as date,
-        sum(round((time_to_sec(a.end)-time_to_sec(a.start))/60,2)) as time_played,
+        sum(round(TIMESTAMPDIFF(SECOND, a.start_at, a.end_at) / 60, 2)) as time_played,
         count(distinct(p.person)) as player_count
     from 
         participant p
@@ -95,10 +95,9 @@ const memberActivitiesProcessor = async function (name, from, to) {
         a.id AS activity_id,
         c.name AS court,
         DATE_FORMAT(a.date, GET_FORMAT(DATE, 'ISO')) AS date,
-        a.start,
-        a.end,
-        ROUND((TIME_TO_SEC(end) - TIME_TO_SEC(start)) / 60,
-                2) AS dur_min,
+        TIME(CONVERT_TZ(a.start_at, 'UTC', cl.time_zone)) AS start,
+        TIME(CONVERT_TZ(a.end_at, 'UTC', cl.time_zone)) AS end,
+        ROUND(TIMESTAMPDIFF(SECOND, a.start_at, a.end_at) / 60, 2) AS dur_min,
         CONCAT(pr.firstname, ' ', pr.lastname) AS player,
         pt.desc AS player_type,
         role.lbl AS member_role
@@ -113,6 +112,8 @@ const memberActivitiesProcessor = async function (name, from, to) {
             JOIN
         court c ON c.id = a.court
             JOIN
+        club cl ON cl.id = c.club
+            JOIN
         activity_type at ON at.id = a.type
             JOIN
         activity_group ag ON ag.id = at.group
@@ -126,7 +127,7 @@ const memberActivitiesProcessor = async function (name, from, to) {
         AND a.date BETWEEN ? AND ?
         AND pr.club = ?
         AND m.valid_from <= a.date AND m.valid_until > a.date
-    ORDER BY date , start`;
+    ORDER BY date , a.start_at`;
 
     try {
         const result = await sqlconnector.withConnection(async (connection) => {

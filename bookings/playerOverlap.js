@@ -162,7 +162,7 @@ async function lockRosterIfNeeded(connection, booking) {
  * requester is not considered. Locks the roster first when the check applies.
  *
  * @param {*} connection
- * @param {{ date: string, start: string, end: string, group_id?: unknown, players?: Array }} booking
+ * @param {{ date: string, utc_start?: number, utc_end?: number, group_id?: unknown, players?: Array }} booking
  */
 async function assertNoConcurrentMemberBookings(connection, booking) {
     const shouldCheck = await lockRosterIfNeeded(connection, booking);
@@ -174,8 +174,8 @@ async function assertNoConcurrentMemberBookings(connection, booking) {
 
     const conflicts = await checkPlayerOverlap(connection, {
         date: booking.date,
-        start: booking.start,
-        end: booking.end,
+        utcStart: booking.utc_start,
+        utcEnd: booking.utc_end,
         personIds,
         groupId: MEMBER_ACTIVITY_GROUP_ID,
     });

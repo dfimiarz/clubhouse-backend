@@ -7,10 +7,16 @@ const originalQuery = sql.runQuery;
 
 describe("member rules in addBooking", () => {
   let inserted;
+  let insertQuery;
+  let overlapQuery;
+  let overlapValues;
   let body;
 
   beforeEach(() => {
     inserted = [];
+    insertQuery = null;
+    overlapQuery = null;
+    overlapValues = null;
     body = {
       court: 1, date: "2026-09-05", start: "09:00", end: "09:30",
       bumpable: 1, note: null, type: 1000,
@@ -29,9 +35,16 @@ describe("member rules in addBooking", () => {
       }
       if (query.includes("FROM club_setting")) return [];
       if (query.includes("SELECT id FROM person")) return [{ id: 7 }, { id: 8 }];
-      if (query.includes("FOR UPDATE")) return [];
+      if (query.includes("FOR UPDATE")) {
+        if (query.includes("court = ?") && query.includes("start_at")) {
+          overlapQuery = query;
+          overlapValues = values;
+        }
+        return [];
+      }
       if (query.includes("rt.requires_pass = 1")) return [];
       if (query.startsWith("INSERT INTO `activity`")) {
+        insertQuery = query;
         inserted.push(values);
         return { insertId: 123 };
       }
@@ -71,6 +84,18 @@ describe("member rules in addBooking", () => {
   it("writes a normal session without requiring a note", async () => {
     await addBooking({ body });
     expect(inserted).to.have.length(1);
+    expect(insertQuery).to.include("start_at");
+    expect(insertQuery).to.include("FROM_UNIXTIME");
+    expect(inserted[0][5]).to.equal(9 * 3600);
+    expect(inserted[0][6]).to.equal(9 * 3600 + 30 * 60);
+    expect(overlapQuery).to.include("INTERVAL 2 DAY");
+    expect(overlapQuery).to.include("start_at >=");
+    expect(overlapValues).to.deep.equal([
+      9 * 3600,
+      9 * 3600 + 30 * 60,
+      9 * 3600,
+      1,
+    ]);
   });
 
   it("writes an explained override within the absolute maximum", async () => {

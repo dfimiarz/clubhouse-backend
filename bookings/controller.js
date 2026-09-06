@@ -26,11 +26,14 @@ const {
 
 const CLUB_ID = process.env.CLUB_ID;
 
-// Club-local wall-clock end of an activity vs club-local "now".
-// date+end are stored as club-local; CONVERT_TZ shifts server NOW into the club zone.
-const ACTIVITY_END_DT = "TIMESTAMP(activity.date, activity.end)";
-const CLUB_NOW_DT =
-  "CONVERT_TZ(NOW(), @@GLOBAL.time_zone, cl.time_zone)";
+const ACTIVITY_END_DT = "activity.end_at";
+const UTC_NOW_DT = "UTC_TIMESTAMP()";
+const LOCAL_START_DT = "CONVERT_TZ(activity.start_at, 'UTC', cl.time_zone)";
+const LOCAL_END_DT = "CONVERT_TZ(activity.end_at, 'UTC', cl.time_zone)";
+const LOCAL_START = `TIME(${LOCAL_START_DT})`;
+const LOCAL_END = `TIME(${LOCAL_END_DT})`;
+// Naive local datetimes, not elapsed UTC, so DST days stay on the wall clock.
+const LOCAL_MIDNIGHT = "TIMESTAMP(activity.date, '00:00:00')";
 
 /**
  * Builds optional list-filter SQL for getBookingsForDate.
@@ -58,15 +61,15 @@ function buildBookingListFilters(date, filters = {}) {
   if (filters.endedMaxAgo != null) {
     // end <= now also excludes sessions still in progress
     filterPredicates.push(
-      `AND ${ACTIVITY_END_DT} <= ${CLUB_NOW_DT}
-       AND ${ACTIVITY_END_DT} >= ${CLUB_NOW_DT} - INTERVAL ? MINUTE`
+      `AND ${ACTIVITY_END_DT} <= ${UTC_NOW_DT}
+       AND ${ACTIVITY_END_DT} >= ${UTC_NOW_DT} - INTERVAL ? MINUTE`
     );
     filterParams.push(filters.endedMaxAgo);
   }
 
   if (filters.endedMinAgo != null) {
     filterPredicates.push(
-      `AND ${ACTIVITY_END_DT} <= ${CLUB_NOW_DT} - INTERVAL ? MINUTE`
+      `AND ${ACTIVITY_END_DT} <= ${UTC_NOW_DT} - INTERVAL ? MINUTE`
     );
     filterParams.push(filters.endedMinAgo);
   }
@@ -104,8 +107,8 @@ function buildBookingListFilters(date, filters = {}) {
  * @param {Object} [filters] - Optional row filters; absent filters leave the query unchanged.
  * @param {boolean} [filters.rebookable] - Only bookings whose activity type has member_rebookable = 1.
  * @param {number} [filters.groupId] - Only bookings with this activity_type.group.
- * @param {number} [filters.endedMinAgo] - Only bookings that ended at least N minutes ago (club time).
- * @param {number} [filters.endedMaxAgo] - Only bookings that ended no more than N minutes ago (club time).
+ * @param {number} [filters.endedMinAgo] - Only bookings whose UTC end instant is at least N minutes before now.
+ * @param {number} [filters.endedMaxAgo] - Only bookings whose UTC end instant is at most N minutes before now.
  * @param {number[]} [filters.personIds] - Only bookings with at least one of these participants.
  * @returns {Promise<Array>} - A promise that resolves to an array of bookings.
  * @throws {Error} - If there is an error retrieving the bookings.
@@ -153,10 +156,10 @@ async function getBookingsForDate(date, filters = {}) {
                                 court,
                                 bumpable,
                                 DATE_FORMAT(date, '%Y-%m-%d') AS date,
-                                end,
-                                start,
-                                TIME_TO_SEC(start) DIV 60 AS start_min,
-                                TIME_TO_SEC(end) DIV 60 AS end_min,
+                                ${LOCAL_END} AS end,
+                                ${LOCAL_START} AS start,
+                                TIMESTAMPDIFF(MINUTE, ${LOCAL_MIDNIGHT}, ${LOCAL_START_DT}) AS start_min,
+                                TIMESTAMPDIFF(MINUTE, ${LOCAL_MIDNIGHT}, ${LOCAL_END_DT}) AS end_min,
                                 type,
                                 created,
                                 updated,
@@ -487,10 +490,9 @@ async function addBooking(request) {
       //START Check for overlapping bookings
       const overlapping_bookings = await checkOverlap(
         connection,
-        booking.end,
-        booking.start,
-        booking.court_id,
-        booking.date
+        booking.utc_end,
+        booking.utc_start,
+        booking.court_id
       );
 
       if (overlapping_bookings.length !== 0) {
@@ -581,14 +583,14 @@ function processPatchCommand(id, cmd) {
  */
 
 async function getOverlappingBookings(court, date, start, end) {
-  const overlap_q = `SELECT a.id,DATE_FORMAT(date,"%Y-%m-%d" ) as date,start,end,a.court,c.name as court_name FROM activity a JOIN court c ON a.court = c.id WHERE ? > start AND ? < end AND court = ? AND date = ? AND active = 1`;
+  const overlap_q = `SELECT a.id,DATE_FORMAT(a.date,"%Y-%m-%d" ) as date,TIME(CONVERT_TZ(a.start_at, 'UTC', cl.time_zone)) as start,TIME(CONVERT_TZ(a.end_at, 'UTC', cl.time_zone)) as end,a.court,c.name as court_name FROM activity a JOIN court c ON a.court = c.id JOIN club cl ON cl.id = c.club WHERE a.start_at >= CONVERT_TZ(TIMESTAMP(?, ?), cl.time_zone, 'UTC') - INTERVAL 2 DAY AND a.start_at < CONVERT_TZ(TIMESTAMP(?, ?), cl.time_zone, 'UTC') AND a.end_at > CONVERT_TZ(TIMESTAMP(?, ?), cl.time_zone, 'UTC') AND a.court = ? AND a.active = 1`;
 
   try {
     return await sqlconnector.withConnection(async (connection) => {
       const overlapping_result = await sqlconnector.runQuery(
         connection,
         overlap_q,
-        [end, start, court, date]
+        [date, start, date, end, date, start, court]
       );
 
       return overlapping_result.map((booking) => {
@@ -620,17 +622,18 @@ async function getCourtAvailability(date, start, end) {
       c.name AS court_name,
       a.id AS booking_id,
       DATE_FORMAT(a.date,"%Y-%m-%d") AS date,
-      a.start,
-      a.end
+      TIME(CONVERT_TZ(a.start_at, 'UTC', cl.time_zone)) AS start,
+      TIME(CONVERT_TZ(a.end_at, 'UTC', cl.time_zone)) AS end
     FROM court c
+    JOIN club cl ON cl.id = c.club
     LEFT JOIN activity a
       ON a.court = c.id
-      AND ? > a.start
-      AND ? < a.end
-      AND a.date = ?
+      AND a.start_at >= CONVERT_TZ(TIMESTAMP(?, ?), cl.time_zone, 'UTC') - INTERVAL 2 DAY
+      AND a.start_at < CONVERT_TZ(TIMESTAMP(?, ?), cl.time_zone, 'UTC')
+      AND a.end_at > CONVERT_TZ(TIMESTAMP(?, ?), cl.time_zone, 'UTC')
       AND a.active = 1
     WHERE c.club = ?
-    ORDER BY c.id, a.start, a.end
+    ORDER BY c.id, a.start_at, a.end_at
   `;
 
   try {
@@ -638,7 +641,7 @@ async function getCourtAvailability(date, start, end) {
       const availability_result = await sqlconnector.runQuery(
         connection,
         availability_q,
-        [end, start, date, CLUB_ID]
+        [date, start, date, end, date, start, CLUB_ID]
       );
 
       const availability_map = new Map();

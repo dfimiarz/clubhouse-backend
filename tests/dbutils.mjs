@@ -30,4 +30,9 @@ describe('toFiniteNumber', () => {
     it('returns NaN for garbage', () => {
         expect(Number.isNaN(toFiniteNumber('nope'))).to.equal(true);
     });
+
+    it('returns NaN for null and undefined', () => {
+        expect(Number.isNaN(toFiniteNumber(null))).to.equal(true);
+        expect(Number.isNaN(toFiniteNumber(undefined))).to.equal(true);
+    });
 });
