@@ -158,8 +158,9 @@ async function lockRosterIfNeeded(connection, booking) {
 
 /**
  * Reject a member-group write when a roster player already has an overlapping
- * member session, or another session that day that has not ended. Role of the
- * requester is not considered. Locks the roster first when the check applies.
+ * member session, another session that day that has not ended, or a session
+ * still in progress after midnight. Role of the requester is not considered.
+ * Locks the roster first when the check applies.
  *
  * @param {*} connection
  * @param {{ date: string, utc_start?: number, utc_end?: number, group_id?: unknown, players?: Array }} booking

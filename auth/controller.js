@@ -18,7 +18,7 @@ async function getUserRole(username, club_id) {
         return null;
     }
 
-    const query = `SELECT r.id,r.lbl FROM clubhouse.membership m join person p on p.id = m.person_id join role r on r.id = m.role join club c on c.id = p.club where club = ? and convert_tz(CURDATE(),@@GLOBAL.time_zone,c.time_zone) between valid_from AND valid_until and p.email = ?`;
+    const query = `SELECT r.id,r.lbl FROM clubhouse.membership m join person p on p.id = m.person_id join role r on r.id = m.role join club c on c.id = p.club where club = ? and convert_tz(CURDATE(),@@session.time_zone,c.time_zone) between valid_from AND valid_until and p.email = ?`;
 
     // Prepared statement — hot path, scalar binds only
     return sqlconnector.withConnection(async (connection) => {

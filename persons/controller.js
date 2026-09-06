@@ -54,8 +54,8 @@ async function fetchActivePersonsFromDB() {
   const member_query = `SELECT m.id, m.firstname, m.lastname, m.public_label, m.guest_host, m.requires_pass
                   FROM membership_view m
                   JOIN club c on c.id = m.club
-                  WHERE DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from
-                  AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < m.valid_until
+                  WHERE DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) >= m.valid_from
+                  AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) < m.valid_until
                   and m.club = ?`;
 
   const passes_query = `SELECT gp.id,guest_id,gp.type,gpt.label FROM clubhouse.guest_pass gp
@@ -65,7 +65,7 @@ async function fetchActivePersonsFromDB() {
     WHERE
     c.id = ? AND
     gp.valid = 1 AND
-    convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone) BETWEEN gp.valid_from and gp.valid_to`;
+    convert_tz(NOW(),@@session.time_zone,c.time_zone) BETWEEN gp.valid_from and gp.valid_to`;
 
   return sqlconnector.withConnection(async (connection) => {
     const active_passes = await sqlconnector.runExecute(
@@ -194,8 +194,8 @@ async function getEventHosts() {
   const query = `SELECT m.id, m.firstname, m.lastname 
                 FROM membership_view m JOIN club c ON c.id = m.club 
                 WHERE event_host = 1 
-                AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= m.valid_from 
-                AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < m.valid_until
+                AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) >= m.valid_from
+                AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) < m.valid_until
                 AND club = ?`;
   return sqlconnector.withConnection(async (connection) => {
     return sqlconnector.runExecute(connection, query, [club_id]);
@@ -351,8 +351,8 @@ async function loadCurrentSeason(connection) {
     JOIN club_seasons cs ON cs.club = c.id
     WHERE
       c.id = ?
-      AND DATE(convert_tz(NOW(), @@GLOBAL.time_zone, c.time_zone)) >= cs.start
-      AND DATE(convert_tz(NOW(), @@GLOBAL.time_zone, c.time_zone)) < cs.end
+      AND DATE(convert_tz(NOW(), @@session.time_zone, c.time_zone)) >= cs.start
+      AND DATE(convert_tz(NOW(), @@session.time_zone, c.time_zone)) < cs.end
     FOR SHARE
   `;
   const rows = await sqlconnector.runExecute(connection, query, [club_id]);
@@ -383,7 +383,7 @@ async function findOverlappingMemberships(connection, personId, season) {
     FROM membership
     WHERE person_id = ?
       AND valid_from < ?
-      AND valid_until > DATE(convert_tz(NOW(), @@GLOBAL.time_zone, ?))
+      AND valid_until > DATE(convert_tz(NOW(), @@session.time_zone, ?))
     FOR UPDATE
   `;
   const rows = await sqlconnector.runExecute(connection, query, [
@@ -405,7 +405,7 @@ async function findOverlappingMemberships(connection, personId, season) {
 async function insertGuestMembership(connection, personId, season) {
   const query = `
     INSERT INTO \`membership\` (\`person_id\`, \`valid_from\`, \`valid_until\`, \`role\`)
-    VALUES (?, DATE(convert_tz(NOW(), @@GLOBAL.time_zone, ?)), ?, ?)
+    VALUES (?, DATE(convert_tz(NOW(), @@session.time_zone, ?)), ?, ?)
   `;
   await sqlconnector.runExecute(connection, query, [
     personId,

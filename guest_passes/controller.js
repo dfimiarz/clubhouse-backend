@@ -42,16 +42,16 @@ const addGuestPass = async (passinfo) => {
     from club c join club_seasons cs on cs.club = c.id 
     WHERE
       c.id = ?
-      AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= cs.start 
-      AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < cs.end
+      AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) >= cs.start
+      AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) < cs.end
     FOR SHARE`;
 
   const role_check_q = `SELECT mv.role_type_id,guest_host,requires_pass
                         FROM membership_view mv 
                         JOIN club c ON c.id = mv.club
                         WHERE mv.id = ? AND club = ? 
-                        AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) >= mv.valid_from 
-                        AND DATE(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone)) < mv.valid_until FOR SHARE`;
+                        AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) >= mv.valid_from
+                        AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) < mv.valid_until FOR SHARE`;
 
   const guest_pass_typq_q = `SELECT label, valid_days, season_limit FROM guest_pass_type WHERE id = ? and club_id  = ? FOR SHARE`;
 
@@ -258,7 +258,7 @@ async function _getGuestPasses(connection, guest_id, season_start, season_end) {
     gp.valid_from,
     gp.valid_to,
     gpt.label,
-    IF(convert_tz(NOW(),@@GLOBAL.time_zone,c.time_zone) BETWEEN gp.valid_from and gp.valid_to,1,0) as active
+    IF(convert_tz(NOW(),@@session.time_zone,c.time_zone) BETWEEN gp.valid_from and gp.valid_to,1,0) as active
   FROM clubhouse.guest_pass gp
 	  join guest_pass_type gpt on gpt.id = gp.type
     join club c on gpt.club_id = c.id

@@ -33,6 +33,7 @@ const LOCAL_END_DT = "CONVERT_TZ(activity.end_at, 'UTC', cl.time_zone)";
 const LOCAL_START = `TIME(${LOCAL_START_DT})`;
 const LOCAL_END = `TIME(${LOCAL_END_DT})`;
 // Naive local datetimes, not elapsed UTC, so DST days stay on the wall clock.
+// Overnight ends are >= 1440 so calendar duration (end_min - start_min) stays positive.
 const LOCAL_MIDNIGHT = "TIMESTAMP(activity.date, '00:00:00')";
 
 /**

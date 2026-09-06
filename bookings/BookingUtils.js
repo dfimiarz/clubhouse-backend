@@ -9,7 +9,7 @@ const booking_q = `SELECT c.id AS court_id,
                         UNIX_TIMESTAMP(a.created) DIV 1 AS utc_created,
                         UNIX_TIMESTAMP(a.updated) DIV 1 AS utc_updated,
                         UNIX_TIMESTAMP(CONVERT_TZ(a.date,cl.time_zone,'UTC')) DIV 1 AS utc_day_start,
-                        UNIX_TIMESTAMP(UTC_TIMESTAMP()) DIV 1 AS utc_req_time,
+                        UNIX_TIMESTAMP() DIV 1 AS utc_req_time,
                         CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', cl.time_zone) AS DATE) + 0 AS loc_req_date,
                         CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', cl.time_zone) AS TIME) AS loc_req_time,
                         DATE_FORMAT(a.date,"%Y-%m-%d" ) as date,
@@ -79,7 +79,7 @@ const booking_time_q = `SELECT
                             UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:start),time_zone,'UTC')) DIV 1 AS utc_start,
                             UNIX_TIMESTAMP(CONVERT_TZ(CONCAT(:date,' ',:end),time_zone,'UTC')) DIV 1 AS utc_end,
                             UNIX_TIMESTAMP(CONVERT_TZ(:date,time_zone,'UTC')) DIV 1 AS utc_day_start,
-                            UNIX_TIMESTAMP(UTC_TIMESTAMP()) DIV 1 AS utc_req_time,
+                            UNIX_TIMESTAMP() DIV 1 AS utc_req_time,
                             CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', time_zone) AS DATE) + 0 AS loc_req_date,
                             CAST(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', time_zone) AS TIME) AS loc_req_time,
                             CAST(:date AS DATE) + 0 AS numeric_date,
@@ -117,9 +117,10 @@ const overlap_check_q = `
     AND court = ?
     AND active = 1 FOR UPDATE`;
 
-// date, group, person ids, utc_end, utc_start — exclusive endpoints, any court.
-// Also matches a same-date session that has not ended, so a player cannot
-// take a second member match while one is still open.
+// group, persons, utcStart, utcEnd, utcStart, date. Lookback from
+// min(proposed start, now) so FOR UPDATE does not scan history.
+// Same-date not-yet-ended still blocks; still-in-progress also matches
+// after midnight when activity.date is yesterday.
 const player_overlap_check_q = `
     SELECT
         a.id,
@@ -143,13 +144,16 @@ const player_overlap_check_q = `
             JOIN
         person ON person.id = p.person
     WHERE
-        a.date = ?
-        AND a.active = 1
+        a.active = 1
         AND at.group = ?
         AND p.person IN ?
+        AND a.start_at >= LEAST(FROM_UNIXTIME(?), UTC_TIMESTAMP()) - INTERVAL 2 DAY
         AND (
             (FROM_UNIXTIME(?) > a.start_at AND FROM_UNIXTIME(?) < a.end_at)
-            OR a.end_at > UTC_TIMESTAMP()
+            OR (
+                a.end_at > UTC_TIMESTAMP()
+                AND (a.date = ? OR a.start_at <= UTC_TIMESTAMP())
+            )
         )
     FOR UPDATE`;
 
@@ -405,7 +409,8 @@ async function checkOverlap(connection, utcEnd, utcStart, court_id) {
 /**
  * Active member-group bookings that share a roster person and either
  * overlap [utcStart, utcEnd) on any court (exclusive endpoints, same as
- * checkOverlap) or have not yet ended on the same business date.
+ * checkOverlap), have not yet ended on the same business date, or are
+ * still in progress (including a session that started yesterday).
  *
  * @param {*} connection
  * @param {{ date: string, utcStart: number, utcEnd: number, personIds: number[], groupId: number }} params
@@ -419,7 +424,7 @@ async function checkPlayerOverlap(connection, { date, utcStart, utcEnd, personId
     const overlap_result = await sqlconnector.runQuery(
         connection,
         player_overlap_check_q,
-        [date, groupId, [personIds], utcEnd, utcStart]
+        [groupId, [personIds], utcStart, utcEnd, utcStart, date]
     );
 
     if (!Array.isArray(overlap_result)) {

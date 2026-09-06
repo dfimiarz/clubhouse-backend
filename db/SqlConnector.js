@@ -58,11 +58,13 @@ function getPool() {
  * @returns {Promise<import("mysql2/promise").PoolConnection>}
  */
 async function getConnection() {
-  const acquire = pool.getConnection();
+  // Via `api` so a test that replaces getPool intercepts acquire.
+  const acquire = api.getPool().getConnection();
   let timer;
+  let connection;
 
   try {
-    return await Promise.race([
+    connection = await Promise.race([
       acquire,
       new Promise((_, reject) => {
         timer = setTimeout(() => {
@@ -77,11 +79,22 @@ async function getConnection() {
   } catch (error) {
     // The acquire may still succeed after we gave up — hand that connection
     // back to the pool instead of leaking it.
-    acquire.then((connection) => connection.release()).catch(() => {});
+    acquire.then((conn) => conn.release()).catch(() => {});
     throw error;
   } finally {
     clearTimeout(timer);
   }
+
+  // FROM_UNIXTIME / UNIX_TIMESTAMP(DATETIME) follow @@session.time_zone.
+  // Pin UTC so stored DATETIME instants match CONVERT_TZ(..., 'UTC') reads.
+  try {
+    await connection.query("SET time_zone = '+00:00'");
+  } catch (error) {
+    connection.release();
+    throw error;
+  }
+
+  return connection;
 }
 
 /**

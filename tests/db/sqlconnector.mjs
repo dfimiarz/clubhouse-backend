@@ -116,6 +116,61 @@ function txConnection({ failOn = null } = {}) {
   };
 }
 
+describe("SqlConnector.getConnection session time zone", () => {
+  const originalGetPool = sqlconnector.getPool;
+
+  afterEach(() => {
+    sqlconnector.getPool = originalGetPool;
+  });
+
+  it("sets +00:00 on the borrowed connection", async () => {
+    const connection = {
+      calls: [],
+      released: 0,
+      async query(sql) {
+        this.calls.push(sql);
+        return [[], []];
+      },
+      release() {
+        this.released++;
+      },
+    };
+    sqlconnector.getPool = () => ({
+      getConnection: async () => connection,
+    });
+
+    const result = await sqlconnector.getConnection();
+
+    expect(result).to.equal(connection);
+    expect(connection.calls).to.deep.equal(["SET time_zone = '+00:00'"]);
+    expect(connection.released).to.equal(0);
+  });
+
+  it("releases the connection if SET time_zone fails", async () => {
+    const connection = {
+      released: 0,
+      async query() {
+        throw new Error("cannot set time zone");
+      },
+      release() {
+        this.released++;
+      },
+    };
+    sqlconnector.getPool = () => ({
+      getConnection: async () => connection,
+    });
+
+    try {
+      await sqlconnector.getConnection();
+      expect.fail("expected getConnection to throw");
+    } catch (err) {
+      expect(err.message).to.equal("cannot set time zone");
+    }
+
+    expect(connection.released).to.equal(1);
+  });
+});
+
 describe("SqlConnector.withConnection", () => {
   const original = sqlconnector.getConnection;
   let connection;

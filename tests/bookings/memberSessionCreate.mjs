@@ -10,6 +10,8 @@ describe("member rules in addBooking", () => {
   let insertQuery;
   let overlapQuery;
   let overlapValues;
+  let playerOverlapQuery;
+  let playerOverlapValues;
   let body;
 
   beforeEach(() => {
@@ -17,6 +19,8 @@ describe("member rules in addBooking", () => {
     insertQuery = null;
     overlapQuery = null;
     overlapValues = null;
+    playerOverlapQuery = null;
+    playerOverlapValues = null;
     body = {
       court: 1, date: "2026-09-05", start: "09:00", end: "09:30",
       bumpable: 1, note: null, type: 1000,
@@ -39,6 +43,10 @@ describe("member rules in addBooking", () => {
         if (query.includes("court = ?") && query.includes("start_at")) {
           overlapQuery = query;
           overlapValues = values;
+        }
+        if (query.includes("p.person IN")) {
+          playerOverlapQuery = query;
+          playerOverlapValues = values;
         }
         return [];
       }
@@ -95,6 +103,16 @@ describe("member rules in addBooking", () => {
       9 * 3600 + 30 * 60,
       9 * 3600,
       1,
+    ]);
+    expect(playerOverlapQuery).to.include("INTERVAL 2 DAY");
+    expect(playerOverlapQuery).to.include("a.start_at <= UTC_TIMESTAMP()");
+    expect(playerOverlapValues).to.deep.equal([
+      1,
+      [[7, 8]],
+      9 * 3600,
+      9 * 3600 + 30 * 60,
+      9 * 3600,
+      "2026-09-05",
     ]);
   });
 

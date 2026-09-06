@@ -90,4 +90,10 @@ ALTER TABLE `activity`
   MODIFY COLUMN `end_at` DATETIME NOT NULL COMMENT 'UTC instant',
   ADD KEY `activity_court_start_at` (`court`, `start_at`, `end_at`);
 
+-- Legacy schedule procedures INSERT/UPDATE start/end only. After NOT NULL
+-- start_at/end_at they fail or drift. The Node app does not CALL them.
+DROP PROCEDURE IF EXISTS `addMatch`;
+DROP PROCEDURE IF EXISTS `changeActivityTime`;
+DROP PROCEDURE IF EXISTS `splitAndMoveActivity`;
+
 INSERT INTO `schema_migrations` (`version`) VALUES ('0016');

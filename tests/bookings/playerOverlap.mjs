@@ -2,6 +2,8 @@ import { expect } from "chai";
 
 import playerOverlap from "../../bookings/playerOverlap.js";
 import playerType from "../../bookings/playerType.js";
+import { checkPlayerOverlap } from "../../bookings/BookingUtils.js";
+import sqlconnector from "../../db/SqlConnector.js";
 
 const {
   personIdsFromPlayers,
@@ -85,6 +87,41 @@ describe("personIdsFromPlayers", () => {
   it("returns an empty list for missing players", () => {
     expect(personIdsFromPlayers(undefined)).to.deep.equal([]);
     expect(personIdsFromPlayers(null)).to.deep.equal([]);
+  });
+});
+
+describe("checkPlayerOverlap SQL", () => {
+  const originalRunQuery = sqlconnector.runQuery;
+
+  afterEach(() => {
+    sqlconnector.runQuery = originalRunQuery;
+  });
+
+  it("looks back from min(start, now) and treats overnight still-open as a conflict", async () => {
+    let query;
+    let values;
+    sqlconnector.runQuery = async (_connection, q, v) => {
+      query = q;
+      values = v;
+      return [];
+    };
+
+    await checkPlayerOverlap(
+      {},
+      {
+        date: "2026-09-06",
+        utcStart: 1000,
+        utcEnd: 2000,
+        personIds: [7, 8],
+        groupId: 1,
+      }
+    );
+
+    expect(query).to.include("LEAST(FROM_UNIXTIME(?), UTC_TIMESTAMP()) - INTERVAL 2 DAY");
+    expect(query).to.include("a.start_at <= UTC_TIMESTAMP()");
+    expect(query).to.include("a.date = ?");
+    expect(query).to.not.match(/WHERE\s+a\.date = \?/);
+    expect(values).to.deep.equal([1, [[7, 8]], 1000, 2000, 1000, "2026-09-06"]);
   });
 });
 

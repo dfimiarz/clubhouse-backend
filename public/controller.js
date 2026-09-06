@@ -86,6 +86,7 @@ async function getPublicBookingsForDate(date) {
     throw new RESTError(403, "Public schedule is only available for today");
   }
 
+  // Overnight ends are >= 1440 so calendar duration (end_min - start_min) stays positive.
   const query = `
     SELECT
       court,

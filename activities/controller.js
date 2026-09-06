@@ -8,7 +8,7 @@ const CLUB_ID = process.env.CLUB_ID;
 
 async function getActivitiesForDates(from, to) {
 
-
+    // Overnight ends are >= 1440 so calendar duration (end_min - start_min) stays positive.
     const activities_q =
         `SELECT 
             a.id,
