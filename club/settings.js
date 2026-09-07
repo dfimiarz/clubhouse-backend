@@ -14,12 +14,21 @@
  *   VALUES (<club id>, '<key>', '<value>')
  *   ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
  *
- * getClubInfo is cached in Redis with no TTL, so any change to a
- * club_setting row needs `yarn cache:clear` before it takes effect.
- * GET /club projects a public DTO from that cache on the way out.
+ * getClubInfo is cached in Redis with no TTL, so public setting changes
+ * need `yarn cache:clear` to refresh GET /club. Session duration policies
+ * are private and read directly from the database for every request.
  */
 
+const { DEFAULT_SESSION_DURATION_POLICY, sessionDurationPolicySchema } = require("./sessionDurationPolicy");
+
 const SETTINGS = {
+    session_duration_policy: {
+        type: "json",
+        default: DEFAULT_SESSION_DURATION_POLICY,
+        schema: sessionDurationPolicySchema,
+        public: false,
+        label: "Member session durations",
+    },
     // Opt-in: a club sees the prompt only after setting this to '1'.
     rebooking_prompt_enabled: {
         type: "boolean",
@@ -60,6 +69,16 @@ function coerce(definition, rawValue) {
     const value = String(rawValue).trim();
 
     switch (definition.type) {
+        case "json": {
+            if (!definition.schema) return definition.default;
+            try {
+                const parsed = definition.schema.safeParse(JSON.parse(value));
+                if (parsed.success) return parsed.data;
+            } catch { /* JSON.parse throws on malformed value */ }
+            const { log, appLogLevels } = require("../utils/logger/logger");
+            log(appLogLevels.WARNING, `Invalid ${definition.label || "JSON setting"}; using defaults`);
+            return definition.default;
+        }
         case "boolean": {
             const lowered = value.toLowerCase();
             if (lowered === "1" || lowered === "true") {

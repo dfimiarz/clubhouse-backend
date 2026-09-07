@@ -3,6 +3,7 @@ const { z } = require('zod')
 const { validate, hhmm, isoDate, intLike, requiredIntLike, csvIntList } = require('./../utils/validate')
 const matchcontroller = require('./controller')
 const { resolveSessionRules, MATCH_PLAYER_TYPE_IDS } = require('./sessionRules')
+const sessionDurationSettings = require('../club/sessionDurationSettings')
 const { checkBookingPermissions, validatePatchRequest } = require('./middleware')
 const { authGuard } = require('../middleware/clientauth')
 const pusher = require('./../pusher/Pusher')
@@ -140,9 +141,10 @@ router.get('/session-rules', authGuard, validate(
      },
      { payload: () => "Invalid query parameter", logPrefix: "Get session rules parameter error" }
 ),
-     (req, res, next) => {
+     async (req, res, next) => {
           try {
-               res.json(resolveSessionRules(req.query.player_types))
+               const policy = await sessionDurationSettings.getSessionDurationPolicy()
+               res.set('Cache-Control', 'no-store').json(resolveSessionRules(req.query.player_types, policy))
           } catch (err) {
                next(err)
           }

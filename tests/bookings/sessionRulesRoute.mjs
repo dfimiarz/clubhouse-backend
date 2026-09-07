@@ -4,6 +4,10 @@ import request from "supertest";
 
 import bookingsRouter from "../../bookings/api.js";
 import errorHandler from "../../utils/errorHandler.js";
+import sessionSettings from "../../club/sessionDurationSettings.js";
+import { DEFAULT_SESSION_DURATION_POLICY } from "../../club/sessionDurationPolicy.js";
+
+const originalGetPolicy = sessionSettings.getSessionDurationPolicy;
 
 function createApp() {
   const app = express();
@@ -19,6 +23,29 @@ function createApp() {
 }
 
 describe("GET /bookings/session-rules", () => {
+  beforeEach(() => {
+    sessionSettings.getSessionDurationPolicy = async () => DEFAULT_SESSION_DURATION_POLICY;
+  });
+  afterEach(() => { sessionSettings.getSessionDurationPolicy = originalGetPolicy; });
+
+  it("uses the current club policy and prevents response caching", async () => {
+    const policy = structuredClone(DEFAULT_SESSION_DURATION_POLICY);
+    policy[2].full_duration_min = 75;
+    policy[2].full_allotment.min_non_repeaters = 1;
+    sessionSettings.getSessionDurationPolicy = async () => policy;
+    const response = await request(createApp()).get('/bookings/session-rules')
+      .query({ player_types: '1000,2000' });
+    expect(response.status).to.equal(200);
+    expect(response.body.max_duration_min).to.equal(75);
+    expect(response.headers['cache-control']).to.equal('no-store');
+  });
+
+  it("propagates settings read failures", async () => {
+    sessionSettings.getSessionDurationPolicy = async () => { throw new Error('Unavailable'); };
+    const response = await request(createApp()).get('/bookings/session-rules')
+      .query({ player_types: '1000' });
+    expect(response.status).to.equal(500);
+  });
   it("returns duration and bumpable for a valid lineup", async () => {
     const response = await request(createApp())
       .get("/bookings/session-rules")

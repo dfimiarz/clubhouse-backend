@@ -6,23 +6,14 @@
  *
  * Bumpable when any second repeater is on the roster (s > 0).
  *
- * Duration is a 4-row lookup by player count. "Full allotment" is the
- * longer slot; everything else uses the reduced slot.
- *
- *   players | full | reduced
- *   1       | 45   | 45
- *   2       | 60   | 30
- *   3       | 60   | 30
- *   4       | 90   | 45
- *
- * Full allotment when:
- *   1 player, or
- *   2 players and both non-repeaters, or
- *   3 players, at least two non-repeaters, and no second-repeaters, or
- *   4 players and all non-repeaters.
+ * Duration and eligibility come from the club's session_duration_policy
+ * (see DEFAULT_SESSION_DURATION_POLICY for the default table).
+ * Full allotment when n >= min_non_repeaters and s <= max_second_repeaters
+ * for that player count; otherwise the reduced slot.
  */
 
 const { PLAYER_TYPE_IDS, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
+const { DEFAULT_SESSION_DURATION_POLICY } = require("../club/sessionDurationPolicy");
 
 const MATCH_PLAYER_TYPE_IDS = new Set([
   PLAYER_TYPE_IDS.NON_REPEATER,
@@ -30,32 +21,17 @@ const MATCH_PLAYER_TYPE_IDS = new Set([
   PLAYER_TYPE_IDS.SECOND_REPEATER,
 ]);
 
-const DURATION_BY_COUNT = {
-  1: { full: 45, reduced: 45 },
-  2: { full: 60, reduced: 30 },
-  3: { full: 60, reduced: 30 },
-  4: { full: 90, reduced: 45 },
-};
-
 /**
  * @param {number} nonRepeaterCount
  * @param {number} secondRepeaterCount
  * @param {number} playerCount
  * @returns {boolean}
  */
-function isFullAllotment(nonRepeaterCount, secondRepeaterCount, playerCount) {
-  switch (playerCount) {
-    case 1:
-      return true;
-    case 2:
-      return nonRepeaterCount === 2;
-    case 3:
-      return nonRepeaterCount >= 2 && secondRepeaterCount === 0;
-    case 4:
-      return nonRepeaterCount === 4;
-    default:
-      return false;
-  }
+function isFullAllotment(nonRepeaterCount, secondRepeaterCount, playerCount, policy = DEFAULT_SESSION_DURATION_POLICY) {
+  const condition = policy[playerCount]?.full_allotment;
+  return condition != null
+    && nonRepeaterCount >= condition.min_non_repeaters
+    && secondRepeaterCount <= condition.max_second_repeaters;
 }
 
 /**
@@ -67,7 +43,7 @@ function isFullAllotment(nonRepeaterCount, secondRepeaterCount, playerCount) {
  *   bumpable: boolean
  * }}
  */
-function resolveSessionRules(playerTypes) {
+function resolveSessionRules(playerTypes, policy = DEFAULT_SESSION_DURATION_POLICY) {
   if (!Array.isArray(playerTypes) || playerTypes.length < 1 || playerTypes.length > 4) {
     throw new Error("Incorrect number of player types");
   }
@@ -89,26 +65,26 @@ function resolveSessionRules(playerTypes) {
   });
 
   const playerCount = ids.length;
-  const table = DURATION_BY_COUNT[playerCount];
-  const full = isFullAllotment(nonRepeaters, secondRepeaters, playerCount);
+  const table = policy[playerCount];
+  const full = isFullAllotment(nonRepeaters, secondRepeaters, playerCount, policy);
 
   return {
     player_types: ids,
     player_count: playerCount,
-    max_duration_min: full ? table.full : table.reduced,
+    max_duration_min: full ? table.full_duration_min : table.reduced_duration_min,
     bumpable: secondRepeaters > 0,
   };
 }
 
 /** Validate member play at creation; club events use their own duration policy. */
-function memberSessionRuleError(booking) {
+function memberSessionRuleError(booking, policy = DEFAULT_SESSION_DURATION_POLICY) {
   if (Number(booking.group_id) !== MEMBER_ACTIVITY_GROUP_ID) {
     return null;
   }
 
   let rule;
   try {
-    rule = resolveSessionRules(booking.players?.map((player) => player.player_type_id));
+    rule = resolveSessionRules(booking.players?.map((player) => player.player_type_id), policy);
   } catch {
     return "Invalid player type for a member booking";
   }

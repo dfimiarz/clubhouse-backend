@@ -1,9 +1,11 @@
 import { expect } from "chai";
 import sql from "../../db/SqlConnector.js";
 import { addBooking } from "../../bookings/controller.js";
+import { DEFAULT_SESSION_DURATION_POLICY } from "../../club/sessionDurationPolicy.js";
 
 const originalTransaction = sql.withTransaction;
 const originalQuery = sql.runQuery;
+const originalExecute = sql.runExecute;
 
 describe("member rules in addBooking", () => {
   let inserted;
@@ -13,9 +15,11 @@ describe("member rules in addBooking", () => {
   let playerOverlapQuery;
   let playerOverlapValues;
   let body;
+  let policy;
 
   beforeEach(() => {
     inserted = [];
+    policy = structuredClone(DEFAULT_SESSION_DURATION_POLICY);
     insertQuery = null;
     overlapQuery = null;
     overlapValues = null;
@@ -27,6 +31,12 @@ describe("member rules in addBooking", () => {
       players: [{ id: 7, type: 3000 }, { id: 8, type: 1000 }],
     };
     sql.withTransaction = async (work) => work({});
+    sql.runExecute = async (_connection, query) => {
+      if (query.includes('FROM club_setting')) {
+        return [{ setting_key: 'session_duration_policy', setting_value: JSON.stringify(policy) }];
+      }
+      throw new Error(`Unexpected execute: ${query}`);
+    };
     sql.runQuery = async (_connection, query, values) => {
       if (query.includes("SELECT p.id,m.role")) return [{ id: 7, role: 2000 }, { id: 8, role: 2000 }];
       if (query.includes("FROM participant_type")) return body.players.map(player => ({ id: player.type }));
@@ -64,6 +74,7 @@ describe("member rules in addBooking", () => {
   afterEach(() => {
     sql.withTransaction = originalTransaction;
     sql.runQuery = originalQuery;
+    sql.runExecute = originalExecute;
   });
 
   async function rejectsBeforeInsert(message) {
@@ -76,6 +87,25 @@ describe("member rules in addBooking", () => {
   it("rejects an unexplained bumpable override before writing", async () => {
     body.bumpable = 0;
     await rejectsBeforeInsert("Explain the session rule override in the note");
+  });
+
+  it("accepts the configured reduced duration without an override note", async () => {
+    policy[2].reduced_duration_min = 60;
+    body.end = '10:00';
+    await addBooking({ body });
+    expect(inserted).to.have.length(1);
+  });
+
+  it("requires a note when the club lowers its reduced duration", async () => {
+    policy[2].reduced_duration_min = 20;
+    await rejectsBeforeInsert('Explain the session rule override in the note');
+  });
+
+  it("uses custom full-allotment eligibility during creation", async () => {
+    policy[2].full_allotment.min_non_repeaters = 1;
+    body.end = '10:00';
+    await addBooking({ body });
+    expect(inserted).to.have.length(1);
   });
 
   it("rejects an unexplained duration override before writing", async () => {

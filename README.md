@@ -2,7 +2,7 @@
 
 ## Club settings
 
-Per-club feature switches live in two places:
+Per-club settings live in two places:
 
 - **`club/settings.js`** — the registry. Declares every known key with its
   type, default and whether it is `public` (public settings are included in the
@@ -25,10 +25,10 @@ ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
 To put a club back on the default, delete its row rather than writing the
 default value — an absent row cannot drift if the registry default changes.
 
-Then **`yarn cache:clear`**. The `/club` payload is cached in Redis under
+For public settings, then **`yarn cache:clear`**. The `/club` payload is cached in Redis under
 `club_info_<CLUB_ID>` with no TTL and nothing invalidates it at runtime, so a
-DB change alone has no visible effect. This is the usual reason a flag "does
-not work".
+DB change alone does not refresh that payload. Booking validation reads its
+settings from the database; session duration policies also bypass Redis entirely.
 
 Booleans accept `'1'`/`'true'` and `'0'`/`'false'` (case-insensitive, trimmed).
 A value the declared type cannot read falls back to the default rather than
@@ -43,8 +43,58 @@ to take effect.
 | `rebooking_prompt_enabled` | boolean | `false` | Show the back-to-back rebooking prompt in the match booking flow. Opt-in: set to `'1'` per club. Does **not** gate Fast rebook on Booking Details |
 | `prevent_concurrent_member_bookings` | boolean | `true` | Reject a member activity (`activity_group = 1`) when any roster player already has an overlapping member session on another court. Club sessions are not checked. Seeded to `'1'` for existing clubs by migration `0012`. Opt out per club with `'0'` |
 | `require_guests_accompanied_by_member` | boolean | `true` | Reject a guest-only roster (including a solo guest). Any non-guest member, instructor, or manager is enough. Seeded to `'1'` for existing clubs by migration `0013`. Opt out per club with `'0'` |
+| `session_duration_policy` | JSON | See below | Full/reduced durations and full-duration eligibility for 1–4 players. Private; edited under Settings → Club by an administrator. |
 
-There is no write endpoint or admin UI yet — values are changed with SQL.
+The boolean settings above are still changed with SQL.
+
+### Member session durations
+
+Apply `database_schema/migrations/0018_expand_club_setting_value.up.sql` before
+saving policies. It expands `setting_value` to `TEXT`; no seed rows are required.
+The matching down migration removes session duration overrides before shrinking
+the column. Any other settings must fit in 255 characters before reverting.
+
+Administrators can edit **Settings → Club → Member session durations**. Each
+player count has full/reduced minutes and an eligibility choice: Everyone,
+Only non-repeaters, Custom condition, or Nobody. Custom conditions specify a
+minimum number of non-repeaters and a maximum number of second repeaters;
+both conditions must hold. The editor explains the resulting rule in words.
+**Use defaults** fills the editor with the current defaults; **Save changes**
+persists them as an explicit override. Cancel restores the last loaded/saved policy.
+
+| Players | Full minutes | Reduced minutes | Minimum non-repeaters | Maximum second repeaters |
+| --- | --- | --- | --- | --- |
+| 1 | 45 | 45 | 0 | 1 |
+| 2 | 60 | 30 | 2 | 2 |
+| 3 | 60 | 30 | 2 | 0 |
+| 4 | 90 | 45 | 4 | 4 |
+
+`GET /club/session-duration-policy` returns `{ policy, defaults }`.
+`PUT /club/session-duration-policy` takes the complete policy object and returns
+the same response shape. Both require the administrator role. Policies are scoped
+to the server's `CLUB_ID` and stored as one atomic `session_duration_policy` row.
+For example, the three-player entry is:
+
+```json
+{
+  "full_duration_min": 60,
+  "reduced_duration_min": 30,
+  "full_allotment": { "min_non_repeaters": 2, "max_second_repeaters": 0 }
+}
+```
+
+The policy contains exactly the keys `"1"`, `"2"`, `"3"`, and `"4"`.
+`full_allotment: null` means nobody qualifies. Durations must be whole minutes
+between 5 and 180, with reduced ≤ full; thresholds must be integers between
+zero and the player count. Invalid saves return 422. Malformed stored overrides
+log a warning and use the entire default policy. Database errors fail the request.
+
+Recommendations (`GET /bookings/session-rules`) and member booking creation read
+the policy directly from the database, so saves require no cache clear. Creation
+validates against the policy read in its transaction, which may differ from an
+earlier recommendation if settings changed in between. Existing bookings retain
+their times. Bumpability, the absolute duration bounds, and explained overrides
+keep their existing behavior.
 
 ## Guest pass type settings
 

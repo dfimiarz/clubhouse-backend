@@ -15,6 +15,7 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 const clubcontroller = require("../club/controller");
 const { suggestPlayerTypes, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 const { memberSessionRuleError } = require("./sessionRules");
+const sessionDurationSettings = require("../club/sessionDurationSettings");
 const {
   assertNoConcurrentMemberBookings,
   lockRosterIfNeeded,
@@ -480,7 +481,10 @@ async function addBooking(request) {
         throw new RESTError(422, "Create permission denied: " + errors[0]);
       }
 
-      const ruleError = memberSessionRuleError(booking);
+      const sessionPolicy = Number(booking.group_id) === MEMBER_ACTIVITY_GROUP_ID
+        ? await sessionDurationSettings.getSessionDurationPolicy(connection)
+        : undefined;
+      const ruleError = memberSessionRuleError(booking, sessionPolicy);
       if (ruleError) {
         throw new RESTError(422, ruleError);
       }
