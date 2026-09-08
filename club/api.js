@@ -9,10 +9,33 @@ const { DEFAULT_SESSION_DURATION_POLICY, sessionDurationPolicySchema } = require
 const sessionDurationSettings = require('./sessionDurationSettings');
 const { DEFAULT_BUMPABILITY_POLICY, bumpabilityPolicySchema } = require('./bumpabilityPolicy');
 const bumpabilitySettings = require('./bumpabilitySettings');
+const guestAccompanimentSettings = require('./guestAccompanimentSettings');
+const { SETTINGS } = require('./settings');
 
 const router = express.Router();
 
 router.use(express.json())
+
+router.get('/guest-accompaniment', authGuard, roleGuard(ROLES.ADMIN), async (req, res, next) => {
+     try {
+          const required = await guestAccompanimentSettings.getGuestAccompaniment();
+          res.set('Cache-Control', 'no-store').json({
+               required, default: SETTINGS.require_guests_accompanied_by_member.default,
+          });
+     } catch (err) {
+          next(err);
+     }
+});
+
+router.put('/guest-accompaniment', authGuard, roleGuard(ROLES.ADMIN),
+     validate({ body: z.strictObject({ required: z.boolean() }) }), async (req, res, next) => {
+          try {
+               const required = await guestAccompanimentSettings.saveGuestAccompaniment(req.body.required);
+               res.json({ required, default: SETTINGS.require_guests_accompanied_by_member.default });
+          } catch (err) {
+               next(err);
+          }
+     });
 
 router.get('/session-duration-policy', authGuard, roleGuard(ROLES.ADMIN), async (req, res, next) => {
      try {

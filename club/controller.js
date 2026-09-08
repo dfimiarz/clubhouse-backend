@@ -6,6 +6,7 @@ const RESTError = require('./../utils/RESTError');
 const { storeJSON, getJSON } = require('./../db/RedisConnector');
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { SETTINGS, resolveSettings } = require('./settings');
+const { getGuestAccompaniment } = require('./guestAccompanimentSettings');
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -16,6 +17,20 @@ const CLUB_ID = process.env.CLUB_ID;
  * Retrieves club information for a given club_id
  */
 async function getClubInfo() {
+    const club = await getCachedClubInfo();
+    // Read after loading metadata: an in-flight cache fill may contain an old
+    // value even after a save. Never use that cached value or mutate the cache.
+    const required = await getGuestAccompaniment();
+    return {
+        ...club,
+        settings: {
+            ...club.settings,
+            require_guests_accompanied_by_member: required,
+        },
+    };
+}
+
+async function getCachedClubInfo() {
 
     const redisKey = `club_info_${CLUB_ID}`;
 

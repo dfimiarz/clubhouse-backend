@@ -28,9 +28,11 @@ ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
 To put a club back on the default, delete its row rather than writing the
 default value — an absent row cannot drift if the registry default changes.
 
-For public settings, then **`yarn cache:clear`**. The `/club` payload is cached in Redis under
-`club_info_<CLUB_ID>` with no TTL and nothing invalidates it at runtime, so a
-DB change alone does not refresh that payload. Booking validation reads its
+After changing the rebooking prompt or concurrent-booking settings with SQL,
+run **`yarn cache:clear`**. Club metadata is cached in Redis under
+`club_info_<CLUB_ID>` with no TTL. Every `/club` response overrides the cached
+guest accompaniment value with a direct database read, so that setting needs
+no cache clear, including after SQL changes. Booking validation reads its
 settings from the database; duration and bumpability policies bypass Redis entirely.
 
 Booleans accept `'1'`/`'true'` and `'0'`/`'false'` (case-insensitive, trimmed).
@@ -49,7 +51,27 @@ to take effect.
 | `session_duration_policy` | JSON | See below | Full/reduced durations and full-duration eligibility for 1–4 players. Private; edited under Settings → Club by an administrator. |
 | `bumpability_policy` | string | `second_repeater` | Determines which member-session lineups must be bumpable. Private; edited under Settings → Club by an administrator. |
 
-The public boolean settings above are still changed with SQL.
+The rebooking prompt and concurrent-booking settings are still changed with SQL.
+
+### Guest accompaniment
+
+Administrators can edit **Settings → Guests → Require guests to be accompanied
+by a member**. Enabled by default, it rejects guest-only rosters; a member,
+instructor, or manager satisfies the requirement. Disabling it allows guest-only
+rosters, while guest pass requirements still apply.
+
+`GET /club/guest-accompaniment` returns `{ required, default }`.
+`PUT /club/guest-accompaniment` accepts `{ required: boolean }` and returns the
+same shape. Both endpoints require administrator access; invalid bodies return
+422. Reads and saves bypass Redis. Every public club-info request reads this
+setting directly from the database after loading cached metadata, so an
+overlapping cache fill cannot leave subsequent requests using a stale rule.
+A failed database read fails the request rather than falling back to the cached
+rule. Saves do not depend on Redis availability. No database migration is needed.
+
+The editor updates booking prechecks in the current browser immediately after
+loading or saving. Other open browsers pick up the value when they reload club
+info; backend booking validation reads the database directly.
 
 ### Member session durations
 

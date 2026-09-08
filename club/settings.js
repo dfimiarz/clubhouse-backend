@@ -14,9 +14,10 @@
  *   VALUES (<club id>, '<key>', '<value>')
  *   ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
  *
- * getClubInfo is cached in Redis with no TTL, so public setting changes
- * need `yarn cache:clear` to refresh GET /club. Session duration and
- * bumpability policies are private and read directly for every request.
+ * Club metadata is cached in Redis with no TTL. GET /club reads guest
+ * accompaniment directly from the database; changes to other public settings
+ * need `yarn cache:clear`. Session duration and bumpability policies are private
+ * and read directly for every request.
  */
 
 const { DEFAULT_SESSION_DURATION_POLICY, sessionDurationPolicySchema } = require("./sessionDurationPolicy");
