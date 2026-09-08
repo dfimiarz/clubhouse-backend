@@ -82,6 +82,7 @@ describe('session duration settings API and persistence', () => {
     sql.withConnection = async work => work({});
     sql.runExecute = async (_connection, query, values) => {
       expect(values[0]).to.equal(process.env.CLUB_ID);
+      if (values[1] === 'bumpability_policy' && query.startsWith('SELECT')) return [];
       expect(values[1]).to.equal('session_duration_policy');
       if (query.startsWith('SELECT')) return stored === null ? [] : [{ setting_key: values[1], setting_value: stored }];
       expect(query).to.include('ON DUPLICATE KEY UPDATE');

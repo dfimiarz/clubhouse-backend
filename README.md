@@ -1,5 +1,8 @@
 # clubhouse-backend
 
+See [README](./README) for database and runtime setup, and the
+[migration guide](./database_schema/migrations/README.md) for schema upgrades.
+
 ## Club settings
 
 Per-club settings live in two places:
@@ -28,7 +31,7 @@ default value — an absent row cannot drift if the registry default changes.
 For public settings, then **`yarn cache:clear`**. The `/club` payload is cached in Redis under
 `club_info_<CLUB_ID>` with no TTL and nothing invalidates it at runtime, so a
 DB change alone does not refresh that payload. Booking validation reads its
-settings from the database; session duration policies also bypass Redis entirely.
+settings from the database; duration and bumpability policies bypass Redis entirely.
 
 Booleans accept `'1'`/`'true'` and `'0'`/`'false'` (case-insensitive, trimmed).
 A value the declared type cannot read falls back to the default rather than
@@ -41,11 +44,12 @@ to take effect.
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `rebooking_prompt_enabled` | boolean | `false` | Show the back-to-back rebooking prompt in the match booking flow. Opt-in: set to `'1'` per club. Does **not** gate Fast rebook on Booking Details |
-| `prevent_concurrent_member_bookings` | boolean | `true` | Reject a member activity (`activity_group = 1`) when any roster player already has an overlapping member session on another court. Club sessions are not checked. Seeded to `'1'` for existing clubs by migration `0012`. Opt out per club with `'0'` |
+| `prevent_concurrent_member_bookings` | boolean | `true` | On create or time/court move, reject a member activity (`activity_group = 1`) when a roster player has another member session that overlaps on any court, has not ended on the same business date, or is still in progress across midnight. Club sessions are not checked. Seeded to `'1'` for existing clubs by migration `0012`. Opt out per club with `'0'` |
 | `require_guests_accompanied_by_member` | boolean | `true` | Reject a guest-only roster (including a solo guest). Any non-guest member, instructor, or manager is enough. Seeded to `'1'` for existing clubs by migration `0013`. Opt out per club with `'0'` |
 | `session_duration_policy` | JSON | See below | Full/reduced durations and full-duration eligibility for 1–4 players. Private; edited under Settings → Club by an administrator. |
+| `bumpability_policy` | string | `second_repeater` | Determines which member-session lineups must be bumpable. Private; edited under Settings → Club by an administrator. |
 
-The boolean settings above are still changed with SQL.
+The public boolean settings above are still changed with SQL.
 
 ### Member session durations
 
@@ -54,7 +58,7 @@ saving policies. It expands `setting_value` to `TEXT`; no seed rows are required
 The matching down migration removes session duration overrides before shrinking
 the column. Any other settings must fit in 255 characters before reverting.
 
-Administrators can edit **Settings → Club → Member session durations**. Each
+Administrators can edit **Settings → Club → Match durations**. Each
 player count has full/reduced minutes and an eligibility choice: Everyone,
 Only non-repeaters, Custom condition, or Nobody. Custom conditions specify a
 minimum number of non-repeaters and a maximum number of second repeaters;
@@ -93,8 +97,36 @@ Recommendations (`GET /bookings/session-rules`) and member booking creation read
 the policy directly from the database, so saves require no cache clear. Creation
 validates against the policy read in its transaction, which may differ from an
 earlier recommendation if settings changed in between. Existing bookings retain
-their times. Bumpability, the absolute duration bounds, and explained overrides
-keep their existing behavior.
+their times. Creating a member booking longer than its recommended duration
+requires a nonblank note. The absolute 5–180 minute bounds still apply even
+with a note. These policies are checked on creation, not on edits to existing
+bookings; club-group events use their own duration checks.
+
+### Bumpable sessions
+
+Administrators can edit **Settings → Club → Bumpable sessions**. The available
+policies determine the recommended bumpable flag for a new member booking:
+
+| Policy | Recommend bumpable when |
+| --- | --- |
+| `second_repeater` (default) | At least one second repeater is playing |
+| `any_repeater` | At least one first or second repeater is playing |
+| `always` | Any member lineup is booked |
+| `never` | No lineup requires it; players can still turn bumpable on |
+
+Turning off a required bumpable flag requires a nonblank note, including under
+`always`. Turning it on when the policy recommends off requires no explanation.
+**Use default** fills the editor without saving; **Save changes** persists an
+explicit override. Cancel restores the last loaded/saved selection.
+
+`GET /club/bumpability-policy` returns `{ policy, default }`.
+`PUT /club/bumpability-policy` accepts `{ policy }`. Both endpoints require the
+administrator role. Recommendations and booking creation read the setting
+directly, so saves require no cache clear and do not modify existing bookings.
+No migration or seed row is required; the existing `club_setting` table stores
+an override only after an administrator saves one.
+Unknown policy values or extra request fields return 422. An unrecognized
+stored value falls back to `second_repeater`; database errors fail the request.
 
 ## Guest pass type settings
 
@@ -150,9 +182,9 @@ through the normal reports API. The shape mirrors club settings: the table
 holds rows, the code holds the schema.
 
 - **`analytics/eventTypes.js`** — the registry. Declares every event name and a
-  strict `zod` schema for its `props`. An event name or a prop the registry
-  does not know is a `400`, so a typo in a call site fails in development
-  instead of becoming data nobody can query.
+  strict `zod` schema for its `props`. An unknown event name or prop returns
+  `400` on `POST /events`; in a valid batch envelope, that event is dropped
+  and listed under `rejected` in the `202` response.
 - **`app_event`** (table) — `club`, `name`, `created`, `actor`, `flow_id`,
   optional `client_ts` (ms since epoch from the client at enqueue), and a
   `props` JSON column. Everything specific to an event lives in `props`,

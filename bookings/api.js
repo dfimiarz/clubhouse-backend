@@ -4,6 +4,7 @@ const { validate, hhmm, isoDate, intLike, requiredIntLike, csvIntList } = requir
 const matchcontroller = require('./controller')
 const { resolveSessionRules, MATCH_PLAYER_TYPE_IDS } = require('./sessionRules')
 const sessionDurationSettings = require('../club/sessionDurationSettings')
+const bumpabilitySettings = require('../club/bumpabilitySettings')
 const { checkBookingPermissions, validatePatchRequest } = require('./middleware')
 const { authGuard } = require('../middleware/clientauth')
 const pusher = require('./../pusher/Pusher')
@@ -125,6 +126,7 @@ router.get('/availability', authGuard, validate(
 
 /**
  * Preferred duration and bumpable flag for a chosen match-booking lineup.
+ * Reads both club policies from the database; creation validates them again.
  * Must stay above GET /:id so "session-rules" is not parsed as an id.
  */
 router.get('/session-rules', authGuard, validate(
@@ -144,7 +146,10 @@ router.get('/session-rules', authGuard, validate(
      async (req, res, next) => {
           try {
                const policy = await sessionDurationSettings.getSessionDurationPolicy()
-               res.set('Cache-Control', 'no-store').json(resolveSessionRules(req.query.player_types, policy))
+               const bumpabilityPolicy = await bumpabilitySettings.getBumpabilityPolicy()
+               res.set('Cache-Control', 'no-store').json(
+                    resolveSessionRules(req.query.player_types, policy, bumpabilityPolicy)
+               )
           } catch (err) {
                next(err)
           }

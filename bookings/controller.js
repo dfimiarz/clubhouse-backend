@@ -16,6 +16,7 @@ const clubcontroller = require("../club/controller");
 const { suggestPlayerTypes, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 const { memberSessionRuleError } = require("./sessionRules");
 const sessionDurationSettings = require("../club/sessionDurationSettings");
+const bumpabilitySettings = require("../club/bumpabilitySettings");
 const {
   assertNoConcurrentMemberBookings,
   lockRosterIfNeeded,
@@ -481,10 +482,13 @@ async function addBooking(request) {
         throw new RESTError(422, "Create permission denied: " + errors[0]);
       }
 
-      const sessionPolicy = Number(booking.group_id) === MEMBER_ACTIVITY_GROUP_ID
-        ? await sessionDurationSettings.getSessionDurationPolicy(connection)
-        : undefined;
-      const ruleError = memberSessionRuleError(booking, sessionPolicy);
+      let sessionPolicy;
+      let bumpabilityPolicy;
+      if (Number(booking.group_id) === MEMBER_ACTIVITY_GROUP_ID) {
+        sessionPolicy = await sessionDurationSettings.getSessionDurationPolicy(connection);
+        bumpabilityPolicy = await bumpabilitySettings.getBumpabilityPolicy(connection);
+      }
+      const ruleError = memberSessionRuleError(booking, sessionPolicy, bumpabilityPolicy);
       if (ruleError) {
         throw new RESTError(422, ruleError);
       }

@@ -1,22 +1,25 @@
 DATABASE SETUP:
 
-The system expects the mysql database running with default time zone set to UTC
+Activities store start_at and end_at as UTC DATETIME values, with date retaining
+the club-local session-start business day. db/SqlConnector.js sets each borrowed
+connection's session time zone to '+00:00'; it does not rely on the host's TZ
+or the MySQL server's default time zone.
 
-Unix
-Setting TZ system variable does the trick on linux. See docker documentation for setting TZ sys var on containers
-
-Windows
-Windows machines do not have timezone info imported into mysql database. Those must be added before changing server time zone. 
-More info along with zone files can be found at: https://dev.mysql.com/doc/refman/5.7/en/time-zone-support.html
-The downloaded file can be easily imported with workbench tool. Make sure you select the "mysql" database to make sure that zone files are imported to the correct location.
-When setting up a database on windows system UTC timezone can be set by setting default-time-zone in the options file. 
-This can be done directly in mysql workbench if needed. Look for "zone" in the options search box.
+MySQL named time zone tables must be loaded for CONVERT_TZ to resolve 'UTC'
+and each club's IANA time zone, on every platform. Migration 0016 checks this
+before backfilling activity instants. Setting the host's TZ alone does not
+populate those tables. See database_schema/migrations/README.md for upgrades.
 
 Connect to Database Running in a container
 docker exec -it name_of_container bash
 
 Env Variables
-Development varible are stored in .env file for development and docker-compose.yml for deployment in docker. Make sure that correct files are set when running the app.
+server.js loads .env through dotenv. Container deployments can supply environment
+variables through their deployment configuration. db/SqlConnector.js reads
+SQL_HOST, SQL_PORT, SQL_USER, SQL_PASSWORD, and SQL_DATABASE; CLUB_ID scopes the
+backend to one club.
 
 Credential files
-System uses firebase to manage user auth. Credential file should be places in /cred/ folder. Use docker-compose.yaml volumes options to map files if needed
+Firebase handles user authentication. firebaseadmin/firebaseadmin.js uses
+applicationDefault() to obtain runtime credentials; it does not read a fixed
+/cred/ path. Configure application default credentials for the deployment.

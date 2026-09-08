@@ -81,6 +81,18 @@ describe("resolveSessionRules", () => {
     expect(a.player_count).to.equal(b.player_count);
   });
 
+  it("supports each configured bumpability policy", () => {
+    const firstRepeaterLineup = [NON_REPEATER, FIRST_REPEATER];
+    const secondRepeaterLineup = [NON_REPEATER, SECOND_REPEATER];
+    expect(resolveSessionRules(firstRepeaterLineup, undefined, "never").bumpable).to.equal(false);
+    expect(resolveSessionRules(secondRepeaterLineup, undefined, "never").bumpable).to.equal(false);
+    expect(resolveSessionRules(firstRepeaterLineup, undefined, "second_repeater").bumpable).to.equal(false);
+    expect(resolveSessionRules(secondRepeaterLineup, undefined, "second_repeater").bumpable).to.equal(true);
+    expect(resolveSessionRules(firstRepeaterLineup, undefined, "any_repeater").bumpable).to.equal(true);
+    expect(resolveSessionRules([NON_REPEATER], undefined, "any_repeater").bumpable).to.equal(false);
+    expect(resolveSessionRules([NON_REPEATER], undefined, "always").bumpable).to.equal(true);
+  });
+
   it("rejects an empty lineup", () => {
     expect(() => resolveSessionRules([])).to.throw("Incorrect number of player types");
   });

@@ -78,8 +78,9 @@ const batchEnvelope = z
     .strict();
 
 /**
- * Strips undeclared props via the registry schema and maps to the controller
- * shape. Safe after validate() has already accepted the body.
+ * Parses validated props with the registry schema and maps to the controller
+ * shape. Undeclared props are rejected during single-event or per-event batch
+ * validation before this helper runs.
  *
  * @param {{ name: string, flow_id?: string|null, client_ts?: number|null, props?: Object }} body
  * @param {string|null} actor

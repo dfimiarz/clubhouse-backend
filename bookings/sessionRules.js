@@ -4,16 +4,22 @@
  * Counts: n = non-repeaters (1000), f = first repeaters (2000),
  * s = second repeaters (3000), total = n + f + s.
  *
- * Bumpable when any second repeater is on the roster (s > 0).
+ * Bumpability comes from the club's bumpability_policy. Its default preserves
+ * the original rule: bumpable when any second repeater is on the roster.
  *
  * Duration and eligibility come from the club's session_duration_policy
  * (see DEFAULT_SESSION_DURATION_POLICY for the default table).
- * Full allotment when n >= min_non_repeaters and s <= max_second_repeaters
- * for that player count; otherwise the reduced slot.
+ * A non-null full_allotment qualifies when n >= min_non_repeaters and
+ * s <= max_second_repeaters for that player count; otherwise use the reduced
+ * slot. Null means no lineup qualifies for the full allotment.
  */
 
 const { PLAYER_TYPE_IDS, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 const { DEFAULT_SESSION_DURATION_POLICY } = require("../club/sessionDurationPolicy");
+const {
+  BUMPABILITY_POLICIES,
+  DEFAULT_BUMPABILITY_POLICY,
+} = require("../club/bumpabilityPolicy");
 
 const MATCH_PLAYER_TYPE_IDS = new Set([
   PLAYER_TYPE_IDS.NON_REPEATER,
@@ -34,6 +40,20 @@ function isFullAllotment(nonRepeaterCount, secondRepeaterCount, playerCount, pol
     && secondRepeaterCount <= condition.max_second_repeaters;
 }
 
+function isBumpable(firstRepeaterCount, secondRepeaterCount, policy = DEFAULT_BUMPABILITY_POLICY) {
+  switch (policy) {
+    case BUMPABILITY_POLICIES.NEVER:
+      return false;
+    case BUMPABILITY_POLICIES.ANY_REPEATER:
+      return firstRepeaterCount > 0 || secondRepeaterCount > 0;
+    case BUMPABILITY_POLICIES.ALWAYS:
+      return true;
+    case BUMPABILITY_POLICIES.SECOND_REPEATER:
+    default:
+      return secondRepeaterCount > 0;
+  }
+}
+
 /**
  * @param {unknown[]} playerTypes
  * @returns {{
@@ -43,7 +63,11 @@ function isFullAllotment(nonRepeaterCount, secondRepeaterCount, playerCount, pol
  *   bumpable: boolean
  * }}
  */
-function resolveSessionRules(playerTypes, policy = DEFAULT_SESSION_DURATION_POLICY) {
+function resolveSessionRules(
+  playerTypes,
+  policy = DEFAULT_SESSION_DURATION_POLICY,
+  bumpabilityPolicy = DEFAULT_BUMPABILITY_POLICY,
+) {
   if (!Array.isArray(playerTypes) || playerTypes.length < 1 || playerTypes.length > 4) {
     throw new Error("Incorrect number of player types");
   }
@@ -54,11 +78,14 @@ function resolveSessionRules(playerTypes, policy = DEFAULT_SESSION_DURATION_POLI
   }
 
   let nonRepeaters = 0;
+  let firstRepeaters = 0;
   let secondRepeaters = 0;
 
   ids.forEach((id) => {
     if (id === PLAYER_TYPE_IDS.NON_REPEATER) {
       nonRepeaters += 1;
+    } else if (id === PLAYER_TYPE_IDS.FIRST_REPEATER) {
+      firstRepeaters += 1;
     } else if (id === PLAYER_TYPE_IDS.SECOND_REPEATER) {
       secondRepeaters += 1;
     }
@@ -72,19 +99,32 @@ function resolveSessionRules(playerTypes, policy = DEFAULT_SESSION_DURATION_POLI
     player_types: ids,
     player_count: playerCount,
     max_duration_min: full ? table.full_duration_min : table.reduced_duration_min,
-    bumpable: secondRepeaters > 0,
+    bumpable: isBumpable(firstRepeaters, secondRepeaters, bumpabilityPolicy),
   };
 }
 
-/** Validate member play at creation; club events use their own duration policy. */
-function memberSessionRuleError(booking, policy = DEFAULT_SESSION_DURATION_POLICY) {
+/**
+ * Validate member play at creation; existing-booking edits do not call this.
+ * A nonblank note permits extra duration or disabling required bumpability,
+ * but never bypasses the 5–180 minute bounds or valid member player types.
+ * Club-group events use their own duration checks.
+ */
+function memberSessionRuleError(
+  booking,
+  policy = DEFAULT_SESSION_DURATION_POLICY,
+  bumpabilityPolicy = DEFAULT_BUMPABILITY_POLICY,
+) {
   if (Number(booking.group_id) !== MEMBER_ACTIVITY_GROUP_ID) {
     return null;
   }
 
   let rule;
   try {
-    rule = resolveSessionRules(booking.players?.map((player) => player.player_type_id), policy);
+    rule = resolveSessionRules(
+      booking.players?.map((player) => player.player_type_id),
+      policy,
+      bumpabilityPolicy,
+    );
   } catch {
     return "Invalid player type for a member booking";
   }
@@ -105,6 +145,7 @@ function memberSessionRuleError(booking, policy = DEFAULT_SESSION_DURATION_POLIC
 module.exports = {
   MATCH_PLAYER_TYPE_IDS,
   isFullAllotment,
+  isBumpable,
   resolveSessionRules,
   memberSessionRuleError,
 };

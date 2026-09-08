@@ -16,10 +16,12 @@ describe("member rules in addBooking", () => {
   let playerOverlapValues;
   let body;
   let policy;
+  let bumpabilityPolicy;
 
   beforeEach(() => {
     inserted = [];
     policy = structuredClone(DEFAULT_SESSION_DURATION_POLICY);
+    bumpabilityPolicy = "second_repeater";
     insertQuery = null;
     overlapQuery = null;
     overlapValues = null;
@@ -31,8 +33,11 @@ describe("member rules in addBooking", () => {
       players: [{ id: 7, type: 3000 }, { id: 8, type: 1000 }],
     };
     sql.withTransaction = async (work) => work({});
-    sql.runExecute = async (_connection, query) => {
+    sql.runExecute = async (_connection, query, values) => {
       if (query.includes('FROM club_setting')) {
+        if (values?.[1] === "bumpability_policy") {
+          return [{ setting_key: "bumpability_policy", setting_value: bumpabilityPolicy }];
+        }
         return [{ setting_key: 'session_duration_policy', setting_value: JSON.stringify(policy) }];
       }
       throw new Error(`Unexpected execute: ${query}`);
@@ -92,6 +97,13 @@ describe("member rules in addBooking", () => {
   it("accepts the configured reduced duration without an override note", async () => {
     policy[2].reduced_duration_min = 60;
     body.end = '10:00';
+    await addBooking({ body });
+    expect(inserted).to.have.length(1);
+  });
+
+  it("uses the configured bumpability policy during creation", async () => {
+    bumpabilityPolicy = "never";
+    body.bumpable = 0;
     await addBooking({ body });
     expect(inserted).to.have.length(1);
   });

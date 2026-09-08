@@ -15,11 +15,15 @@
  *   ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
  *
  * getClubInfo is cached in Redis with no TTL, so public setting changes
- * need `yarn cache:clear` to refresh GET /club. Session duration policies
- * are private and read directly from the database for every request.
+ * need `yarn cache:clear` to refresh GET /club. Session duration and
+ * bumpability policies are private and read directly for every request.
  */
 
 const { DEFAULT_SESSION_DURATION_POLICY, sessionDurationPolicySchema } = require("./sessionDurationPolicy");
+const {
+    DEFAULT_BUMPABILITY_POLICY,
+    bumpabilityPolicySchema,
+} = require("./bumpabilityPolicy");
 
 const SETTINGS = {
     session_duration_policy: {
@@ -28,6 +32,13 @@ const SETTINGS = {
         schema: sessionDurationPolicySchema,
         public: false,
         label: "Member session durations",
+    },
+    bumpability_policy: {
+        type: "string",
+        default: DEFAULT_BUMPABILITY_POLICY,
+        schema: bumpabilityPolicySchema,
+        public: false,
+        label: "Bumpable sessions",
     },
     // Opt-in: a club sees the prompt only after setting this to '1'.
     rebooking_prompt_enabled: {
@@ -93,8 +104,11 @@ function coerce(definition, rawValue) {
             const parsed = Number.parseInt(value, 10);
             return Number.isNaN(parsed) ? definition.default : parsed;
         }
-        case "string":
-            return value;
+        case "string": {
+            if (!definition.schema) return value;
+            const parsed = definition.schema.safeParse(value);
+            return parsed.success ? parsed.data : definition.default;
+        }
         case "time": {
             const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(value);
             if (!match) {

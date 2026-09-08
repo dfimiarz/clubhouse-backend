@@ -23,6 +23,14 @@ describe("member session creation rules", () => {
     }
   });
 
+  it("uses the configured bumpability policy", () => {
+    expect(memberSessionRuleError(booking({ bumpable: 0 }), undefined, "never")).to.equal(null);
+    expect(memberSessionRuleError(booking({
+      bumpable: 0,
+      players: [{ player_type_id: 1000 }, { player_type_id: 1000 }],
+    }), undefined, "always")).to.equal("Explain the session rule override in the note");
+  });
+
   it("enforces the absolute maximum even when explained", () => {
     expect(memberSessionRuleError(booking({ utc_end: 181 * 60, notes: "Approved" }))).to.equal("Member sessions must be between 5 and 180 minutes long");
     expect(memberSessionRuleError(booking({ utc_end: 180 * 60, notes: "Approved" }))).to.equal(null);
