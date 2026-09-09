@@ -44,12 +44,13 @@ backend also depends on later migrations; applying only `0001` is insufficient.
 1. Run `0000_create_schema_migrations.up.sql` (creates the tracking table).
 2. Inspect the schema and `schema_migrations` to identify already-applied changes.
 3. Review and apply missing `*.up.sql` files in numeric order, currently through
-   `0018_expand_club_setting_value.up.sql`.
+   `0019_guest_pass_type_auto_increment.up.sql`.
 
 Read each migration before applying or reverting it. Later migrations change
 data and remove columns: `0016` backfills UTC activity instants and requires
 loaded MySQL named time zones; `0017` removes the legacy `start`/`end` columns;
-`0018` expands setting values for duration policies. Reverts may remove saved
+`0018` expands setting values for duration policies; `0019` enables automatic IDs
+for creating guest pass types in Settings. Reverts may remove saved
 overrides or require a compatible backend version.
 
 ## Marking the current dev DB as already migrated
