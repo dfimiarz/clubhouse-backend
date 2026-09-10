@@ -5,7 +5,8 @@ const {
     loadSettingsByPassType,
     settingsForPassType,
 } = require("../guest-pass-types/settings");
-const { evaluatePassRules, earliestPlayAfter } = require("../guest-pass-types/rules");
+const { evaluatePassRules, evaluateAllowedDays, earliestPlayAfter } = require("../guest-pass-types/rules");
+const { bookingWeekday, WEEKDAY_NAMES } = require("../guest-pass-types/weekdays");
 const { personIdsFromPlayers } = require("./playerOverlap");
 const { log, appLogLevels } = require("../utils/logger/logger");
 
@@ -166,7 +167,7 @@ async function findPassRequiringPlayers(connection, personIds, date) {
 }
 
 /**
- * Date-window covering passes. Type is needed so play_after (and later rules)
+ * Date-window covering passes. Type is needed so playing restrictions
  * can be evaluated per pass.
  *
  * @param {*} connection
@@ -354,6 +355,7 @@ async function assertGuestsHaveValidPasses(connection, booking) {
     );
 
     const restricted = [];
+    const wrongDay = [];
 
     guests.forEach((guest) => {
         const passes = covering.filter((pass) => pass.guest_id === guest.id);
@@ -371,13 +373,20 @@ async function assertGuestsHaveValidPasses(connection, booking) {
             return;
         }
 
+        const dayEligible = settingsList.filter(
+            (settings) => evaluateAllowedDays(settings.allowed_days, booking).ok
+        );
+        if (dayEligible.length === 0) {
+            wrongDay.push(guest);
+            return;
+        }
         restricted.push({
             ...guest,
-            play_after: earliestPlayAfter(settingsList),
+            play_after: earliestPlayAfter(dayEligible),
         });
     });
 
-    if (missing.length === 0 && restricted.length === 0) {
+    if (missing.length === 0 && restricted.length === 0 && wrongDay.length === 0) {
         return;
     }
 
@@ -388,6 +397,10 @@ async function assertGuestsHaveValidPasses(connection, booking) {
     if (restricted.length > 0) {
         parts.push(formatPlayAfterMessage(restricted));
     }
+    const weekday = WEEKDAY_NAMES[bookingWeekday(booking.date) - 1];
+    wrongDay.forEach((guest) => {
+        parts.push(`${personDisplayName(guest)}'s guest pass does not allow play on ${weekday || "this day"}.`);
+    });
 
     log(
         appLogLevels.WARNING,
@@ -395,7 +408,7 @@ async function assertGuestsHaveValidPasses(connection, booking) {
             booking_date: booking.date,
             booking_start: booking.start,
             guest_ids: missing.map((guest) => guest.id),
-            restricted_ids: restricted.map((guest) => guest.id),
+            restricted_ids: [...restricted, ...wrongDay].map((guest) => guest.id),
         })}`
     );
 

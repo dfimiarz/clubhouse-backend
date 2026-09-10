@@ -49,13 +49,16 @@ describe('guest pass type management', () => {
       }
       if (query.includes('guest_pass_type_setting')) {
         if (failSettings) throw new Error('Settings write failed');
-        if (query.startsWith('DELETE')) settings.delete(values[0]);
-        else settings.set(values[0], values[2]);
+        if (query.startsWith('DELETE')) settings.delete(`${values[0]}:${values[1]}`);
+        else settings.set(`${values[0]}:${values[1]}`, values[2]);
         writes++; return { affectedRows: 1 };
       }
       throw new Error(`Unexpected SQL: ${query}`);
     };
-    sql.runQuery = async () => [...settings].map(([pass_type, setting_value]) => ({ pass_type, setting_key: 'play_after', setting_value }));
+    sql.runQuery = async (_conn, query, values) => [...settings].map(([key, setting_value]) => {
+      const [id, setting_key] = key.split(':');
+      return { pass_type: Number(id), setting_key, setting_value };
+    }).filter(row => !query.includes('WHERE pass_type = ?') || row.pass_type === values[0]);
   });
   afterEach(() => { Object.assign(sql, original); redis.deleteKey = originalDelete; });
 
@@ -70,11 +73,11 @@ describe('guest pass type management', () => {
   });
 
   it('updates an existing type and removes the play-time restriction', async () => {
-    settings.set(7, '14:00');
-    const data = { ...payload, cost: 0, limit: 0, settings: { play_after: null } };
+    settings.set('7:play_after', '14:00');
+    const data = { ...payload, cost: 0, limit: 0, settings: { play_after: null, allowed_days: null } };
     const response = await request(appFor()).put(`${endpoint}/7`).send(data).expect(200);
     expect(response.body).to.deep.equal({ id: 7, ...data, constraints: [] });
-    expect(settings.has(7)).to.equal(false);
+    expect(settings.has('7:play_after')).to.equal(false);
     expect(rows).to.have.length(1);
     expect(invalidations).to.deep.equal([`active_persons_${process.env.CLUB_ID}`]);
   });
@@ -92,6 +95,50 @@ describe('guest pass type management', () => {
       await request(appFor()).put(`${endpoint}/${id}`).send(payload).expect(422);
     }
     expect(writes).to.equal(0);
+  });
+
+  it('persists day and time rules together, preserves omitted days, and clears explicit null', async () => {
+    const data = { ...payload, settings: { play_after: '12:00', allowed_days: [5, 1, 3] } };
+    const created = await request(appFor()).post(endpoint).send(data).expect(201);
+    expect(created.body.settings).to.deep.equal({ play_after: '12:00', allowed_days: [1, 3, 5] });
+    expect(created.body.constraints).to.deep.equal([
+      { key: 'play_after', text: 'Play at or after 12:00' },
+      { key: 'allowed_days', text: 'Play on Monday, Wednesday, Friday only' },
+    ]);
+    const listed = await request(appFor()).get(endpoint).expect(200);
+    expect(listed.body.find(pass => pass.id === 8)).to.deep.equal(created.body);
+    expect(settings.get('8:allowed_days')).to.equal('[1,3,5]');
+    const updated = await request(appFor()).put(`${endpoint}/8`).send(payload).expect(200);
+    expect(updated.body.settings.allowed_days).to.deep.equal([1, 3, 5]);
+    const cleared = await request(appFor()).put(`${endpoint}/8`)
+      .send({ ...payload, settings: { play_after: '12:00', allowed_days: null } }).expect(200);
+    expect(cleared.body.settings.allowed_days).to.equal(null);
+    expect(settings.has('8:allowed_days')).to.equal(false);
+    expect(cleared.body.constraints).to.have.length(1);
+  });
+
+  it('rejects empty, duplicate, fractional, and out-of-range playing days without writes', async () => {
+    for (const allowed_days of [[], [0], [8], [1.5], ['1'], [1, 1], [1, 2, 3, 4, 5, 6, 6], 'Monday', true, {}]) {
+      await request(appFor()).post(endpoint)
+        .send({ ...payload, settings: { play_after: null, allowed_days } }).expect(422);
+    }
+    expect(writes).to.equal(0);
+  });
+
+  it('normalizes full-week creates and updates to null and removes an existing restriction', async () => {
+    const data = { ...payload, settings: { play_after: null, allowed_days: [7, 6, 5, 4, 3, 2, 1] } };
+    const created = await request(appFor()).post(endpoint).send(data).expect(201);
+    expect(created.body.settings).to.deep.equal({ play_after: null, allowed_days: null });
+    expect(created.body.constraints).to.deep.equal([]);
+    expect(settings.has('8:allowed_days')).to.equal(false);
+
+    settings.set('7:allowed_days', '[1,3,5]');
+    const updated = await request(appFor()).put(`${endpoint}/7`).send(data).expect(200);
+    expect(updated.body.settings).to.deep.equal(created.body.settings);
+    expect(updated.body.constraints).to.deep.equal([]);
+    expect(settings.has('7:allowed_days')).to.equal(false);
+    const listed = await request(appFor()).get(endpoint).expect(200);
+    expect(listed.body.find(pass => pass.id === 7)).to.deep.equal(updated.body);
   });
 
   it('allows catalog reads but denies non-administrator writes and unauthenticated requests', async () => {

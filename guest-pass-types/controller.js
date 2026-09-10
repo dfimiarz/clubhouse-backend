@@ -2,7 +2,9 @@ const sqlconnector = require("../db/SqlConnector");
 const club_id = process.env.CLUB_ID;
 const RESTError = require("../utils/RESTError");
 const {
+  SETTINGS,
   loadClubPassTypeSettings,
+  loadSettingsForPassType,
   rulesForPassType,
   passTypeRules,
 } = require("./settings");
@@ -82,17 +84,21 @@ async function savePassType(id, input) {
       id = result.insertId;
     }
 
-    if (data.settings.play_after === null) {
-      await sqlconnector.runExecute(connection,
-        "DELETE FROM guest_pass_type_setting WHERE pass_type = ? AND setting_key = ?",
-        [id, "play_after"]);
-    } else {
-      await sqlconnector.runExecute(connection,
-        `INSERT INTO guest_pass_type_setting (pass_type, setting_key, setting_value)
-         VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-        [id, "play_after", data.settings.play_after]);
+    for (const [key, value] of Object.entries(data.settings)) {
+      // Older clients may omit new rules; retain those existing settings.
+      if (value === undefined) continue;
+      if (value === null) {
+        await sqlconnector.runExecute(connection,
+          "DELETE FROM guest_pass_type_setting WHERE pass_type = ? AND setting_key = ?",
+          [id, key]);
+      } else {
+        await sqlconnector.runExecute(connection,
+          `INSERT INTO guest_pass_type_setting (pass_type, setting_key, setting_value)
+           VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+          [id, key, SETTINGS[key].type === "json" ? JSON.stringify(value) : value]);
+      }
     }
-    return { id, ...data, ...passTypeRules(data.settings) };
+    return { id, ...data, ...passTypeRules(await loadSettingsForPassType(connection, id)) };
   });
   // Active-person responses embed pass labels and restrictions. Invalidate
   // after commit; the existing short TTL bounds staleness if Redis is down.

@@ -1,4 +1,5 @@
 const { SETTINGS } = require("./settings");
+const { bookingWeekday } = require("./weekdays");
 
 /**
  * @param {unknown} value
@@ -62,16 +63,30 @@ function evaluatePlayAfter(playAfter, booking) {
     return { ok: true };
 }
 
+/**
+ * @param {unknown} allowedDays Resolved ISO weekdays, or null for unrestricted.
+ * @param {{ date?: string }} booking
+ * @returns {{ ok: boolean, key?: string, day?: number|null }}
+ */
+function evaluateAllowedDays(allowedDays, booking) {
+    if (!Array.isArray(allowedDays)) return { ok: true };
+    const day = bookingWeekday(booking?.date);
+    return allowedDays.includes(day)
+        ? { ok: true }
+        : { ok: false, key: "allowed_days", day };
+}
+
 const EVALUATORS = {
     play_after: evaluatePlayAfter,
+    allowed_days: evaluateAllowedDays,
 };
 
 /**
  * Walks registered pass rules. A null/missing value is unrestricted.
  *
  * @param {object|null|undefined} resolved
- * @param {{ start?: unknown }} booking
- * @returns {{ ok: boolean, key?: string, clock?: string }}
+ * @param {{ date?: string, start?: unknown }} booking
+ * @returns {{ ok: boolean, key?: string, clock?: string, day?: number|null }}
  */
 function evaluatePassRules(resolved, booking) {
     const settings = resolved && typeof resolved === "object" ? resolved : {};
@@ -118,5 +133,6 @@ module.exports = {
     timeToMinutes,
     formatClock,
     evaluatePassRules,
+    evaluateAllowedDays,
     earliestPlayAfter,
 };

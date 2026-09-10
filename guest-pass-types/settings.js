@@ -13,6 +13,7 @@
 
 const sqlconnector = require("../db/SqlConnector");
 const { resolveSettings } = require("../club/settings");
+const { allowedDaysSchema, WEEKDAY_NAMES } = require("./weekdays");
 
 const SETTINGS = {
     // Opt-in: session start must be at or after this club-local time.
@@ -21,6 +22,16 @@ const SETTINGS = {
         default: null,
         public: true,
         label: "Play at or after",
+    },
+    allowed_days: {
+        type: "json",
+        schema: allowedDaysSchema,
+        default: null,
+        public: true,
+        label: "Play on",
+        format: (days) => days.length === 7
+            ? null
+            : `Play on ${days.map((day) => WEEKDAY_NAMES[day - 1]).join(", ")} only`,
     },
 };
 
@@ -76,7 +87,7 @@ function resolvePassTypeSettings(rows) {
 
 /**
  * @param {string} key
- * @param {{ type?: string, default?: unknown, label?: string }} definition
+ * @param {{ type?: string, default?: unknown, label?: string, format?: (value: unknown) => string|null }} definition
  * @param {unknown} value
  * @returns {string|null}
  */
@@ -84,6 +95,8 @@ function formatConstraintText(key, definition, value) {
     if (value === undefined || value === null || Object.is(value, definition.default)) {
         return null;
     }
+
+    if (definition.format) return definition.format(value);
 
     const label =
         typeof definition.label === "string" && definition.label.trim()

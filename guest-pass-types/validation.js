@@ -1,5 +1,6 @@
 const { z } = require("zod");
 const { hhmm } = require("../utils/validate");
+const { allowedDaysSchema } = require("./weekdays");
 
 const integer = z.number().int().min(0).max(2147483647);
 const passTypeSchema = z.strictObject({
@@ -9,6 +10,7 @@ const passTypeSchema = z.strictObject({
   limit: integer,
   settings: z.strictObject({
     play_after: hhmm("Enter a time in HH:MM format").nullable(),
+    allowed_days: allowedDaysSchema.nullable().optional(),
   }),
 });
 

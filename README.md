@@ -162,7 +162,10 @@ Per-type booking rules live in the same two-layer shape as club settings:
   registry default (unrestricted), and rows for keys that are not in the
   registry are ignored.
 
-Adding a rule costs one registry entry, one evaluator, and no migration.
+Adding a rule requires a registry entry and an evaluator, with no migration.
+Editable rules also need request validation and admin controls. JSON values
+are serialized according to the registry type; definitions can supply a
+`format` function for custom constraint text.
 
 `GET /guest-pass-types`, `GET /persons/active` (`person.pass`), and
 `POST /guest_passes` all return the resolved `settings` object and a
@@ -194,8 +197,21 @@ only, inclusive.
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `play_after` | time | `null` | Guest may start a session at or after this club-local time. Opt in per pass type with `'HH:mm'` |
+| `allowed_days` | JSON array | `null` | Guest may play on the selected ISO weekdays (1–7), based on the club-local session date |
 
-There is no write endpoint or admin UI yet — values are changed with SQL.
+Administrators can create and edit types in Settings → Guest passes, using
+`POST /guest-pass-types` and `PUT /guest-pass-types/:id`. Playing restrictions
+apply to already-issued passes as well as new ones; edits invalidate the
+active-persons cache after commit.
+
+`settings.allowed_days` accepts a nonempty array of unique ISO weekday numbers
+(Monday = 1, Sunday = 7), or `null` for every day. It is stored as JSON, for
+example `[1,2,3,4,5]` for weekdays. Empty, duplicate, and invalid days return
+422. Omitting the field on an update preserves its current value for older
+clients. A valid seven-day list is normalized to `null`: API writes remove
+the override row, and existing full-week rows resolve to unrestricted on read.
+Enforcement uses the booking’s club-local date, independently of
+the server time zone, and combines day and time restrictions on the same pass.
 
 ## Product analytics
 

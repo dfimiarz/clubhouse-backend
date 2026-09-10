@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import assert from "node:assert/strict";
 
 import guestPass from "../../bookings/guestPass.js";
 import sqlconnector from "../../db/SqlConnector.js";
@@ -15,6 +16,62 @@ const {
 } = guestPass;
 
 const originalRunQuery = sqlconnector.runQuery;
+
+describe("guest pass playing days enforcement", () => {
+  afterEach(() => { sqlconnector.runQuery = originalRunQuery; });
+
+  function stubPasses(settings) {
+    sqlconnector.runQuery = async (_connection, query) => {
+      if (query.includes('requires_pass')) return [{ id: 10, firstname: 'Jane', lastname: 'Doe' }];
+      if (query.includes('guest_pass_type_setting')) {
+        expect(query).to.include('LOCK IN SHARE MODE');
+        return settings.flatMap((rules, index) => Object.entries(rules).map(([setting_key, value]) => ({
+          pass_type: index + 1, setting_key,
+          setting_value: Array.isArray(value) ? JSON.stringify(value) : value,
+        })));
+      }
+      if (query.includes('guest_pass')) return settings.map((_rules, index) => ({ guest_id: 10, type: index + 1 }));
+      throw new Error(`Unexpected SQL: ${query}`);
+    };
+  }
+
+  const booking = { date: '2026-09-12', start: '10:00', players: [{ person_id: 10 }] };
+
+  it('rejects a weekday pass on Saturday and accepts it on Monday', async () => {
+    stubPasses([{ allowed_days: [1, 2, 3, 4, 5] }]);
+    await assert.rejects(assertGuestsHaveValidPasses({}, booking), {
+      status: 422, payload: "Jane Doe's guest pass does not allow play on Saturday.",
+    });
+    await assertGuestsHaveValidPasses({}, { ...booking, date: '2026-09-14' });
+  });
+
+  it('accepts an alternative unrestricted or Saturday pass', async () => {
+    for (const alternative of [{}, { allowed_days: [6], play_after: '10:00' }]) {
+      stubPasses([{ allowed_days: [1] }, alternative]);
+      await assertGuestsHaveValidPasses({}, booking);
+    }
+  });
+
+  it('does not combine the day from one pass with the time from another', async () => {
+    stubPasses([
+      { allowed_days: [1], play_after: '09:00' },
+      { allowed_days: [6], play_after: '12:00' },
+    ]);
+    await assert.rejects(assertGuestsHaveValidPasses({}, booking), {
+      status: 422, payload: "Jane Doe's guest pass does not allow play before 12:00.",
+    });
+  });
+
+  it('reports the day when no covering pass allows that day', async () => {
+    stubPasses([
+      { allowed_days: [1], play_after: '09:00' },
+      { allowed_days: [7], play_after: '12:00' },
+    ]);
+    await assert.rejects(assertGuestsHaveValidPasses({}, booking), {
+      status: 422, payload: "Jane Doe's guest pass does not allow play on Saturday.",
+    });
+  });
+});
 
 describe("formatMissingGuestPassMessage", () => {
   it("names each guest once", () => {
