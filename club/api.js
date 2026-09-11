@@ -11,10 +11,29 @@ const { DEFAULT_BUMPABILITY_POLICY, bumpabilityPolicySchema } = require('./bumpa
 const bumpabilitySettings = require('./bumpabilitySettings');
 const guestAccompanimentSettings = require('./guestAccompanimentSettings');
 const { SETTINGS } = require('./settings');
+const restrictedMemberSettings = require('./restrictedMemberSettings');
 
 const router = express.Router();
 
 router.use(express.json())
+
+router.get('/restricted-member-roles', authGuard, roleGuard(ROLES.ADMIN), async (_req, res, next) => {
+     try {
+          res.set('Cache-Control', 'no-store').json(await restrictedMemberSettings.getRestrictedMemberRoles());
+     } catch (err) {
+          next(err);
+     }
+});
+
+router.put('/restricted-member-roles/:id', authGuard, roleGuard(ROLES.ADMIN),
+     validate({ params: restrictedMemberSettings.roleParams, body: restrictedMemberSettings.restrictedMemberSchema }),
+     async (req, res, next) => {
+          try {
+               res.json(await restrictedMemberSettings.saveRestrictedMemberRole(req.params.id, req.body));
+          } catch (err) {
+               next(err);
+          }
+     });
 
 router.get('/guest-accompaniment', authGuard, roleGuard(ROLES.ADMIN), async (req, res, next) => {
      try {

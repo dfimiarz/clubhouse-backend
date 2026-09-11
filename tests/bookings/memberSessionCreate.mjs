@@ -17,11 +17,13 @@ describe("member rules in addBooking", () => {
   let body;
   let policy;
   let bumpabilityPolicy;
+  let restrictedSettings;
 
   beforeEach(() => {
     inserted = [];
     policy = structuredClone(DEFAULT_SESSION_DURATION_POLICY);
     bumpabilityPolicy = "second_repeater";
+    restrictedSettings = null;
     insertQuery = null;
     overlapQuery = null;
     overlapValues = null;
@@ -66,6 +68,11 @@ describe("member rules in addBooking", () => {
         return [];
       }
       if (query.includes("rt.requires_pass = 1")) return [];
+      if (query.includes("r.type = ?")) return restrictedSettings
+        ? [{ id: 7, firstname: 'Jane', lastname: 'Doe', role_id: 1500, role_label: 'Junior' }] : [];
+      if (query.includes("FROM club_role_setting")) return Object.entries(restrictedSettings).map(([setting_key, value]) => ({
+        role: 1500, setting_key, setting_value: Array.isArray(value) ? JSON.stringify(value) : value,
+      }));
       if (query.startsWith("INSERT INTO `activity`")) {
         insertQuery = query;
         inserted.push(values);
@@ -92,6 +99,14 @@ describe("member rules in addBooking", () => {
   it("rejects an unexplained bumpable override before writing", async () => {
     body.bumpable = 0;
     await rejectsBeforeInsert("Explain the session rule override in the note");
+  });
+
+  it("rejects restricted members before insertion even with an override note", async () => {
+    restrictedSettings = { play_after: '12:00' };
+    body.note = 'Approved extra time';
+    await rejectsBeforeInsert("Jane Doe's Junior membership does not allow play before 12:00.");
+    restrictedSettings = { allowed_days: [1, 2, 3, 4, 5] };
+    await rejectsBeforeInsert("Jane Doe's Junior membership does not allow play on Saturday.");
   });
 
   it("accepts the configured reduced duration without an override note", async () => {

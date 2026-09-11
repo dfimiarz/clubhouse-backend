@@ -8,6 +8,7 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 const { transactionType } = require("../utils/dbutils");
 
 const CLUB_ID = process.env.CLUB_ID;
+const { assertRestrictedMembersCanPlay } = require('./restrictedMember');
 
 /**
  * Snapshot a booking, take the person mutex when the concurrent-member rule
@@ -198,6 +199,7 @@ async function changeSessionTime(id, cmd) {
 
         await assertGuestsAccompaniedByMember(connection, movedbooking);
         await assertGuestsHaveValidPasses(connection, movedbooking);
+        await assertRestrictedMembersCanPlay(connection, movedbooking);
 
         const insertid = await insertBooking(connection, movedbooking);
 
@@ -347,6 +349,7 @@ async function changeCourt(id, cmd) {
 
         await assertGuestsAccompaniedByMember(connection, movedbooking);
         await assertGuestsHaveValidPasses(connection, movedbooking);
+        await assertRestrictedMembersCanPlay(connection, movedbooking);
 
         const insertid = await insertBooking(connection, movedbooking);
 

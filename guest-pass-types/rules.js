@@ -133,6 +133,7 @@ module.exports = {
     timeToMinutes,
     formatClock,
     evaluatePassRules,
+    evaluatePlayAfter,
     evaluateAllowedDays,
     earliestPlayAfter,
 };

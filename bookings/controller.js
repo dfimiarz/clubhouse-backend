@@ -27,6 +27,7 @@ const {
 } = require("./guestPass");
 
 const CLUB_ID = process.env.CLUB_ID;
+const { assertRestrictedMembersCanPlay } = require("./restrictedMember");
 
 const ACTIVITY_END_DT = "activity.end_at";
 const UTC_NOW_DT = "UTC_TIMESTAMP()";
@@ -522,6 +523,7 @@ async function addBooking(request) {
 
       await assertGuestsAccompaniedByMember(connection, booking);
       await assertGuestsHaveValidPasses(connection, booking);
+      await assertRestrictedMembersCanPlay(connection, booking);
 
       await insertBooking(connection, booking);
 

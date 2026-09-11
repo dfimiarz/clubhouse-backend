@@ -213,6 +213,27 @@ the override row, and existing full-week rows resolve to unrestricted on read.
 Enforcement uses the booking’s club-local date, independently of
 the server time zone, and combines day and time restrictions on the same pass.
 
+## Restricted member playing rules
+
+Administrators can configure **Settings → Players → Restricted members** for
+every role whose `role.type` is `RESTRICTED_MEMBER_TYPE` (200). Roles are a global
+catalog, so overrides live in `club_role_setting`, keyed by club, role, and rule.
+Apply migration `0020_add_club_role_setting.up.sql` before deploying this backend.
+
+`GET /club/restricted-member-roles` lists those roles with resolved `settings`
+and display `constraints`. `PUT /club/restricted-member-roles/:id` accepts
+`{ "settings": { "play_after": "12:00", "allowed_days": [1,2,3,4,5] } }`.
+Both routes require an authenticated administrator. Both settings are required
+on updates; use `null` to remove a limit. Validation and weekday normalization
+match guest passes. No override means unrestricted.
+
+Booking creation, time changes, and court moves enforce both limits for each
+restricted membership covering the session date (`valid_from` inclusive,
+`valid_until` exclusive), using the session's club-local start and date. The
+participant type and override note cannot bypass membership restrictions.
+Existing bookings are not rewritten when settings change; future creation and
+move attempts use the current settings. Other role types are unaffected.
+
 ## Product analytics
 
 Feature usage is recorded as events in the `app_event` table and read back
