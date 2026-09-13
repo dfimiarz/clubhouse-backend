@@ -166,6 +166,7 @@ describe("getActivePersons controller", () => {
   let memberRows;
   let passRows;
   let settingRows;
+  let roleSettingRows;
   let cachedList;
   let stored;
 
@@ -175,6 +176,7 @@ describe("getActivePersons controller", () => {
     memberRows = [];
     passRows = [];
     settingRows = [];
+    roleSettingRows = [];
     cachedList = null; // default: cache miss, fall back to the DB
     stored = undefined;
 
@@ -198,6 +200,9 @@ describe("getActivePersons controller", () => {
     // silently broke these tests during the mysql2 migration.
     const record = async (_connection, query, values) => {
       queries.push({ query, values });
+      if (query.includes("club_role_setting")) {
+        return roleSettingRows;
+      }
       if (query.includes("guest_pass_type_setting")) {
         return settingRows;
       }
@@ -342,6 +347,50 @@ describe("getActivePersons controller", () => {
       }
 
       expect(released).to.equal(true);
+    });
+
+    it("shows club-scoped membership rules only for restricted roles and preserves them in cached lookups", async () => {
+      memberRows = [
+        { id: 1, firstname: "Jane", role: 1000, role_type_id: 200, requires_pass: 0 },
+        { id: 2, firstname: "John", role: 1500, role_type_id: "200", requires_pass: 0 },
+        { id: 3, role: 2000, role_type_id: 300, requires_pass: 0 },
+        { id: 4, role: 1000, role_type_id: 200, requires_pass: 0 },
+      ];
+      roleSettingRows = [
+        { role: 1000, setting_key: "play_after", setting_value: "12:00" },
+        { role: 1000, setting_key: "allowed_days", setting_value: "[1,3,5]" },
+        { role: 1500, setting_key: "play_after", setting_value: "09:00" },
+        { role: 2000, setting_key: "play_after", setting_value: "18:00" },
+      ];
+
+      const persons = await personsController.getActivePersons();
+      expect(persons[0].constraints).to.deep.equal([
+        { key: "play_after", text: "Play at or after 12:00" },
+        { key: "allowed_days", text: "Play on Monday, Wednesday, Friday only" },
+      ]);
+      expect(persons[1].constraints).to.deep.equal([
+        { key: "play_after", text: "Play at or after 09:00" },
+      ]);
+      expect(persons[2]).to.not.have.property("constraints");
+      expect(persons[3].constraints).to.deep.equal(persons[0].constraints);
+      expect(persons[0]).to.not.have.property("role");
+      expect(persons[0]).to.not.have.property("role_type_id");
+      expect(persons[0]).to.not.have.property("pass");
+      const roleQueries = queries.filter(({ query }) => query.includes("club_role_setting"));
+      expect(roleQueries).to.have.lengthOf(1);
+      expect(roleQueries[0].values).to.deep.equal([process.env.CLUB_ID, [[1000, 1500]]]);
+
+      cachedList = stored;
+      queries = [];
+      expect(await personsController.getActivePersons({ ids: [1] })).to.deep.equal([persons[0]]);
+      expect(await personsController.getActivePersons({ search: "Jane" })).to.deep.equal([persons[0]]);
+      expect(queries).to.have.lengthOf(0);
+    });
+
+    it("omits membership callouts when the restricted role has no limits", async () => {
+      memberRows = [{ id: 1, role: 1000, role_type_id: 200, requires_pass: 0 }];
+      const persons = await personsController.getActivePersons();
+      expect(persons[0]).to.not.have.property("constraints");
     });
   });
 

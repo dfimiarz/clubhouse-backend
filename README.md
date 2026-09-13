@@ -227,6 +227,11 @@ Both routes require an authenticated administrator. Both settings are required
 on updates; use `null` to remove a limit. Validation and weekday normalization
 match guest passes. No override means unrestricted.
 
+`GET /persons/active` includes display `constraints` for active restricted
+members, using the same rule text as guest passes. Player selection shows these
+with the same Restricted badge and callout. Internal role fields remain private.
+The active-persons cache can take up to 60 seconds to reflect rule changes.
+
 Booking creation, time changes, and court moves enforce both limits for each
 restricted membership covering the session date (`valid_from` inclusive,
 `valid_until` exclusive), using the session's club-local start and date. The

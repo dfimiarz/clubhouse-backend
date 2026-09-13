@@ -7,10 +7,12 @@ const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("./../utils/RESTError");
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { normalizeWhitespace, normalizeEmail, normalizePhone } = require("../utils/utils");
-const { ROLES } = require("../utils/dbconstants");
+const { ROLES, ROLE_TYPES } = require("../utils/dbconstants");
+const { loadRoleSettings } = require("../club/restrictedMemberSettings");
 const {
   loadSettingsByPassType,
   rulesForPassType,
+  constraintsFromSettings,
 } = require("../guest-pass-types/settings");
 
 const SEARCH_RESULT_LIMIT = 20;
@@ -40,6 +42,9 @@ function toPublicActivePerson(person) {
   if (person.pass) {
     dto.pass = person.pass;
   }
+  if (person.constraints?.length) {
+    dto.constraints = person.constraints;
+  }
 
   return dto;
 }
@@ -51,7 +56,8 @@ function toPublicActivePerson(person) {
  * @returns {Promise<Array>} Full active-persons list
  */
 async function fetchActivePersonsFromDB() {
-  const member_query = `SELECT m.id, m.firstname, m.lastname, m.public_label, m.guest_host, m.requires_pass
+  const member_query = `SELECT m.id, m.firstname, m.lastname, m.public_label, m.guest_host, m.requires_pass,
+                         m.role, m.role_type_id
                   FROM membership_view m
                   JOIN club c on c.id = m.club
                   WHERE DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) >= m.valid_from
@@ -93,6 +99,17 @@ async function fetchActivePersonsFromDB() {
     const persons = await sqlconnector.runExecute(connection, member_query, [
       club_id,
     ]);
+
+    const restrictedMembers = persons.filter(
+      (person) => Number(person.role_type_id) === ROLE_TYPES.RESTRICTED_MEMBER_TYPE
+    );
+    const settingsByRole = await loadRoleSettings(
+      connection,
+      restrictedMembers.map((person) => person.role)
+    );
+    restrictedMembers.forEach((person) => {
+      person.constraints = constraintsFromSettings(settingsByRole.get(Number(person.role)));
+    });
 
     //Loop through persons and add active pass info to each guest
     persons.forEach((person) => {
