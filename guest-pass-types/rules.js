@@ -76,6 +76,53 @@ function evaluateAllowedDays(allowedDays, booking) {
         : { ok: false, key: "allowed_days", day };
 }
 
+// Longest window scanned; seasons are shorter than this.
+const MAX_WINDOW_DAYS = 400;
+
+/**
+ * Whether a session can still start on some club-local date in [from, to]
+ * under these pass settings.
+ *
+ * A start must fall in an open frame from `openFrames(date)`, at or after
+ * play_after, leave `minSessionMin` (default 1) before the frame closes and, on `from`
+ * (today), not be before `nowMin`. On `to` it must be at or before
+ * `lastStartMin`, since the pass covers a session only when it starts by
+ * valid_to.
+ *
+ * @param {object|null|undefined} resolved
+ * @param {{ from: string, to: string, nowMin?: number, lastStartMin?: number, minSessionMin?: number,
+ *   openFrames: (date: string) => Array<{ open_min: number, close_min: number }> }} window
+ * @returns {boolean}
+ */
+function hasPlayableTime(resolved, {
+    from, to, nowMin = 0, lastStartMin = 24 * 60 - 1, minSessionMin = 1, openFrames,
+}) {
+    const settings = resolved && typeof resolved === "object" ? resolved : {};
+    if (bookingWeekday(from) == null || bookingWeekday(to) == null) return false;
+
+    const afterMin = timeToMinutes(settings.play_after);
+    const playAfter = Number.isFinite(afterMin) ? afterMin : 0;
+
+    // UTC arithmetic keeps club-local dates from shifting, as in bookingWeekday.
+    const cursor = new Date(`${from}T00:00:00.000Z`);
+    for (let i = 0; i < MAX_WINDOW_DAYS; i++) {
+        const date = cursor.toISOString().slice(0, 10);
+        if (date > to) return false;
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+
+        if (!evaluateAllowedDays(settings.allowed_days, { date }).ok) continue;
+
+        const earliest = Math.max(playAfter, date === from ? nowMin : 0);
+        const latest = date === to ? lastStartMin : Infinity;
+        const playable = openFrames(date).some((frame) => {
+            const start = Math.max(frame.open_min, earliest);
+            return start <= latest && start + minSessionMin <= frame.close_min;
+        });
+        if (playable) return true;
+    }
+    return false;
+}
+
 const EVALUATORS = {
     play_after: evaluatePlayAfter,
     allowed_days: evaluateAllowedDays,
@@ -136,4 +183,5 @@ module.exports = {
     evaluatePlayAfter,
     evaluateAllowedDays,
     earliestPlayAfter,
+    hasPlayableTime,
 };

@@ -6,15 +6,36 @@ const {
   loadClubPassTypeSettings,
   loadSettingsForPassType,
   rulesForPassType,
+  settingsForPassType,
   passTypeRules,
 } = require("./settings");
 const { passTypeSchema } = require("./validation");
+const { NO_SEASON_REASON, loadSaleContext, evaluateSale } = require("./sale");
 const redisconnector = require("../db/RedisConnector");
 const { log, appLogLevels } = require("../utils/logger/logger");
 
 /**
  * @typedef {import("./types").PassType} PassType;
  */
+
+/**
+ * Why each pass type cannot be sold right now (null when it can), keyed by
+ * type id. Uses the same evaluation as POST /guest_passes.
+ *
+ * @param {*} connection
+ * @param {Array<{ id: number, label: string, valid_days: number }>} passTypes
+ * @param {Map<number, object>} settingsByType
+ * @returns {Promise<Map<number, string|null>>}
+ */
+async function saleAvailability(connection, passTypes, settingsByType) {
+  const sale = await loadSaleContext(connection, club_id);
+  return new Map(passTypes.map((passType) => [
+    passType.id,
+    sale
+      ? evaluateSale(sale, passType, settingsForPassType(settingsByType, passType.id)).reason
+      : NO_SEASON_REASON,
+  ]));
+}
 
 /**
  *
@@ -49,9 +70,18 @@ const getPassTypes = async () => {
     }
 
     const settingsByType = await loadClubPassTypeSettings(connection, club_id);
+    // Availability only helps the buy dialog, and POST /guest_passes re-checks
+    // it, so a failure here must not take down the catalog (admin settings
+    // use it too). Types are then listed without the sale fields.
+    let availability = null;
+    try {
+      availability = await saleAvailability(connection, guest_pass_types_res, settingsByType);
+    } catch (error) {
+      log(appLogLevels.WARNING, `Unable to evaluate guest pass availability: ${error}`);
+    }
 
     return guest_pass_types_res.map((pass_type) => {
-      return {
+      const entry = {
         id: pass_type.id,
         label: pass_type.label,
         valid: pass_type.valid_days,
@@ -59,6 +89,9 @@ const getPassTypes = async () => {
         cost: pass_type.cost,
         ...rulesForPassType(settingsByType, pass_type.id),
       };
+      if (!availability) return entry;
+      const unavailable_reason = availability.get(pass_type.id);
+      return { ...entry, sellable: unavailable_reason === null, unavailable_reason };
     });
   });
 };

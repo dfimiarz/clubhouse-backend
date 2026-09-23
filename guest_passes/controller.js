@@ -8,13 +8,11 @@ const {
   loadSettingsForPassType,
   passTypeRules,
 } = require("../guest-pass-types/settings");
-
-const dayjs = require("dayjs");
-const utc = require("dayjs/plugin/utc");
-const timezone = require("dayjs/plugin/timezone");
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
+const {
+  NO_SEASON_REASON,
+  loadSaleContext,
+  evaluateSale,
+} = require("../guest-pass-types/sale");
 
 /**
  * @typedef {import("./types").PassInfo} PassInfo;
@@ -30,22 +28,6 @@ const addGuestPass = async (passinfo) => {
   (\`guest_id\`, \`member_id\`, \`type\`, \`valid_from\`, \`valid_to\`)
   VALUES (?, ?, ?, ?, ?)`;
 
-  const club_info_q = `
-    select 
-      c.id,
-      c.name,
-      c.time_zone,
-      cs.id as season_id,
-      cs.name as season_name,
-      cs.start as season_start,
-      cs.end as season_end 
-    from club c join club_seasons cs on cs.club = c.id 
-    WHERE
-      c.id = ?
-      AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) >= cs.start
-      AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) < cs.end
-    FOR SHARE`;
-
   const role_check_q = `SELECT mv.role_type_id,guest_host,requires_pass
                         FROM membership_view mv 
                         JOIN club c ON c.id = mv.club
@@ -57,22 +39,16 @@ const addGuestPass = async (passinfo) => {
 
   try {
     const result = await sqlconnector.withTransaction(async (connection) => {
-      const club_info_res = await sqlconnector.runExecute(
-        connection,
-        club_info_q,
-        [club_id]
-      );
+      const sale = await loadSaleContext(connection, club_id, { lock: true });
 
-      if (!(Array.isArray(club_info_res) && club_info_res.length === 1)) {
-        throw new RESTError(400, "Incorrect club data");
+      if (!sale) {
+        throw new RESTError(400, NO_SEASON_REASON);
       }
 
-      //Get club id and season info
       // Season start is inclusive
-      const season_start = club_info_res[0].season_start;
+      const season_start = sale.season.season_start;
       // Season end is exclusive
-      const season_end = club_info_res[0].season_end;
-      const time_zone = club_info_res[0].time_zone;
+      const season_end = sale.season.season_end;
 
       const host_data_res = await sqlconnector.runExecute(
         connection,
@@ -160,29 +136,21 @@ const addGuestPass = async (passinfo) => {
         }
       }
 
-      if (valid_days < 1) {
-        throw new RESTError(400, "Invalid pass configuration");
+      const type_settings = await loadSettingsForPassType(
+        connection,
+        passinfo.pass_type,
+        { lock: true }
+      );
+
+      //Refuse a pass that is misconfigured or leaves no playable time before it expires
+      const { window, reason } = evaluateSale(
+        sale,
+        { label: pass_type_label, valid_days },
+        type_settings
+      );
+      if (reason) {
+        throw new RESTError(400, reason);
       }
-
-      //Pass is valid from beinging of the day
-      const valid_from = dayjs().tz(time_zone).startOf("day");
-
-      //Throw error if valid_from is before season start
-      if (valid_from.isBefore(season_start)) {
-        throw new RESTError(400, "Pass is not available");
-      }
-
-      //Pass is valid to valid_from + valid_days - 1
-      let valid_to = valid_from.add(valid_days - 1, "day").endOf("day");
-
-      //Format both dates to YYYY-MM-DD HH:mm:ss
-      const v_f_formatted = valid_from.format("YYYY-MM-DD HH:mm:ss");
-
-      // Check if valid_to is after season end and format accordingly. 
-      // Season end is exclusive so we need to subtract 1 second from the season end date
-      const v_t_formatted = valid_to.isAfter(season_end)
-        ? dayjs(season_end).tz(time_zone).subtract(1, 'second').format("YYYY-MM-DD HH:mm:ss")
-        : valid_to.format("YYYY-MM-DD HH:mm:ss");
 
       const guest_pass_res = await sqlconnector.runExecute(
         connection,
@@ -191,16 +159,12 @@ const addGuestPass = async (passinfo) => {
           passinfo.guest,
           passinfo.host,
           passinfo.pass_type,
-          v_f_formatted,
-          v_t_formatted,
+          window.from,
+          window.to,
         ]
       );
 
-      const rules = passTypeRules(
-        await loadSettingsForPassType(connection, passinfo.pass_type, {
-          lock: true,
-        })
-      );
+      const rules = passTypeRules(type_settings);
 
       return {
         id: guest_pass_res.insertId,

@@ -8,6 +8,12 @@ import errorHandler from '../../utils/errorHandler.js';
 
 const endpoint = '/guest-pass-types';
 const payload = { label: 'Afternoon', cost: 1250, valid: 2, limit: 4, settings: { play_after: '12:00' } };
+// Catalog rows also carry sale availability, which create/update responses do not.
+function catalogEntry(body, id) {
+  const { sellable, unavailable_reason, ...entry } = body.find(pass => pass.id === id);
+  expect({ sellable, unavailable_reason }).to.deep.equal({ sellable: true, unavailable_reason: null });
+  return entry;
+}
 function appFor(role = 4000, userauth = true) {
   const app = express();
   app.use((_req, res, next) => { Object.assign(res.locals, { role, userauth }); next(); });
@@ -32,6 +38,12 @@ describe('guest pass type management', () => {
     };
     sql.withConnection = async work => work(connection);
     sql.runExecute = async (_conn, query, values) => {
+      if (query.includes('club_seasons')) {
+        return [{ time_zone: 'America/New_York', season_start: '2000-01-01', season_end: '2100-01-01' }];
+      }
+      if (query.includes('court_schedule_item')) {
+        return [1, 2, 3, 4, 5, 6, 7].map(dayofweek => ({ from: '2000-01-01', to: '2099-12-31', dayofweek, open_min: 0, close_min: 1440 }));
+      }
       if (query.startsWith('SELECT id')) {
         return rows.filter(row => row.id === values[0] && row.club_id === values[1]);
       }
@@ -68,7 +80,7 @@ describe('guest pass type management', () => {
     expect(created.body.constraints).to.deep.equal([{ key: 'play_after', text: 'Play at or after 12:00' }]);
     const listed = await request(appFor()).get(endpoint).expect(200);
     expect(listed.headers['cache-control']).to.equal('no-store');
-    expect(listed.body.find(pass => pass.id === 8)).to.deep.equal(created.body);
+    expect(catalogEntry(listed.body, 8)).to.deep.equal(created.body);
     expect(commits).to.equal(1);
   });
 
@@ -106,7 +118,7 @@ describe('guest pass type management', () => {
       { key: 'allowed_days', text: 'Play on Monday, Wednesday, Friday only' },
     ]);
     const listed = await request(appFor()).get(endpoint).expect(200);
-    expect(listed.body.find(pass => pass.id === 8)).to.deep.equal(created.body);
+    expect(catalogEntry(listed.body, 8)).to.deep.equal(created.body);
     expect(settings.get('8:allowed_days')).to.equal('[1,3,5]');
     const updated = await request(appFor()).put(`${endpoint}/8`).send(payload).expect(200);
     expect(updated.body.settings.allowed_days).to.deep.equal([1, 3, 5]);
@@ -138,7 +150,7 @@ describe('guest pass type management', () => {
     expect(updated.body.constraints).to.deep.equal([]);
     expect(settings.has('7:allowed_days')).to.equal(false);
     const listed = await request(appFor()).get(endpoint).expect(200);
-    expect(listed.body.find(pass => pass.id === 7)).to.deep.equal(updated.body);
+    expect(catalogEntry(listed.body, 7)).to.deep.equal(updated.body);
   });
 
   it('allows catalog reads but denies non-administrator writes and unauthenticated requests', async () => {

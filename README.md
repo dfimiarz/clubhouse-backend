@@ -213,6 +213,19 @@ the override row, and existing full-week rows resolve to unrestricted on read.
 Enforcement uses the booking’s club-local date, independently of
 the server time zone, and combines day and time restrictions on the same pass.
 
+`POST /guest_passes` refuses (400) to sell a pass that leaves no time to
+start a session before it expires. Some club-local date from today through
+its expiry (clamped to the season's last second) must be an allowed weekday
+with open court time (`court_schedule_item`) for a minimum-length (5 minute)
+session starting at or after `play_after` and, for today, the current time.
+On the last day the start must also be no later than `valid_to`. A one-day
+weekday pass on a Saturday, or any one-day pass after closing, is refused. An
+afternoon pass can still be bought in the morning. `GET /guest-pass-types`
+runs the same evaluation (`guest-pass-types/sale.js`) for each type and
+returns `sellable` plus `unavailable_reason` (the 400 message, or `null`) so
+the buy dialog can disable those types. If availability cannot be evaluated
+the catalog is still returned, without those two fields.
+
 ## Restricted member playing rules
 
 Administrators can configure **Settings → Players → Restricted members** for

@@ -16,6 +16,10 @@
 
 const { PLAYER_TYPE_IDS, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 const { DEFAULT_SESSION_DURATION_POLICY } = require("../club/sessionDurationPolicy");
+
+// Hard bounds on a member session, which no note overrides.
+const MIN_SESSION_DURATION_MIN = 5;
+const MAX_SESSION_DURATION_MIN = 180;
 const {
   BUMPABILITY_POLICIES,
   DEFAULT_BUMPABILITY_POLICY,
@@ -130,7 +134,9 @@ function memberSessionRuleError(
   }
 
   const duration = (Number(booking.utc_end) - Number(booking.utc_start)) / 60;
-  if (!Number.isFinite(duration) || duration < 5 || duration > 180) {
+  if (!Number.isFinite(duration)
+    || duration < MIN_SESSION_DURATION_MIN
+    || duration > MAX_SESSION_DURATION_MIN) {
     return "Member sessions must be between 5 and 180 minutes long";
   }
 
@@ -143,6 +149,7 @@ function memberSessionRuleError(
 }
 
 module.exports = {
+  MIN_SESSION_DURATION_MIN,
   MATCH_PLAYER_TYPE_IDS,
   isFullAllotment,
   isBumpable,
