@@ -207,6 +207,61 @@ async function withTransaction(fn, options = {}) {
   });
 }
 
+// Row-locking suffixes on a SELECT (with an optional NOWAIT / SKIP LOCKED).
+const LOCKING_READ_CLAUSE =
+  /\s+(?:FOR\s+UPDATE|FOR\s+SHARE|LOCK\s+IN\s+SHARE\s+MODE)(?:\s+(?:NOWAIT|SKIP\s+LOCKED))?/gi;
+
+/**
+ * The same statement as a plain consistent read: locking clauses removed.
+ *
+ * @param {string|{ sql: string }} query
+ * @returns {string|{ sql: string }}
+ */
+function withoutLockingReads(query) {
+  if (typeof query === "string") {
+    return query.replace(LOCKING_READ_CLAUSE, "");
+  }
+  if (query && typeof query.sql === "string") {
+    return { ...query, sql: query.sql.replace(LOCKING_READ_CLAUSE, "") };
+  }
+  return query;
+}
+
+/**
+ * Connection facade for withSnapshotReads. runQuery / runExecute only call
+ * query() and execute(), so those are the only methods it offers; anything
+ * else fails loudly rather than bypassing the rewrite.
+ *
+ * @param {import("mysql2/promise").PoolConnection} connection
+ */
+function snapshotConnection(connection) {
+  return {
+    query: (query, values) => connection.query(withoutLockingReads(query), values),
+    execute: (query, values) => connection.execute(withoutLockingReads(query), values),
+  };
+}
+
+/**
+ * Run code written for a write transaction as a lock-free preview.
+ *
+ * Starts a READ ONLY transaction and strips FOR UPDATE / FOR SHARE /
+ * LOCK IN SHARE MODE from every statement, so each SELECT becomes a plain
+ * read of one consistent snapshot. Nothing is locked, so a preview never
+ * blocks or deadlocks with real writes; any write attempt fails because
+ * the transaction is read-only. Use for dry runs of a write path. Its result
+ * is advisory: the real write re-checks under its own locks.
+ *
+ * @template T
+ * @param {(connection: { query: Function, execute: Function }) => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+async function withSnapshotReads(fn) {
+  return api.withTransaction(
+    (connection) => fn(snapshotConnection(connection)),
+    { mode: "readOnly" }
+  );
+}
+
 /**
  * Single object shared by the module's own internals and its consumers.
  *
@@ -224,6 +279,8 @@ const api = {
   runExecute,
   withConnection,
   withTransaction,
+  withSnapshotReads,
+  withoutLockingReads,
 };
 
 module.exports = api;

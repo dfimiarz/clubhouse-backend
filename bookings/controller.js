@@ -345,9 +345,10 @@ function personsCoveringBookingDate(rows, requestedIds) {
  * activities, guest passes after people. Returns the booking ready for
  * insertBooking, or throws a RESTError naming the first failure.
  *
- * Run inside a READ WRITE transaction. It takes the same locks the insert
- * relies on, so a check that passes here still holds when the insert follows
- * in the same transaction.
+ * For a create, run inside a READ WRITE transaction: it takes the locks the
+ * insert relies on, so a check that passes still holds when the insert
+ * follows in the same transaction. checkNewBooking runs it under
+ * withSnapshotReads instead, where those locks become plain reads.
  *
  * @param {*} connection
  * @param {{ court: number, date: string, start: string, end: string, note?: string, bumpable: number, type: number, players: Array<{ id: number, type: number }> }} body
@@ -573,9 +574,8 @@ async function checkNewBooking(request) {
   const OPCODE = "ADD_BOOKING";
 
   try {
-    await sqlconnector.withTransaction(
-      (connection) => validateNewBooking(connection, request.body),
-      { mode: "readWrite" }
+    await sqlconnector.withSnapshotReads(
+      (connection) => validateNewBooking(connection, request.body)
     );
   } catch (error) {
     throw error instanceof RESTError

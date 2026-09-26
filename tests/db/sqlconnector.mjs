@@ -286,3 +286,66 @@ describe("SqlConnector.withTransaction", () => {
     expect(logged[0].message).to.match(/rollback failed: rollback failed/i);
   });
 });
+
+describe("SqlConnector.withoutLockingReads", () => {
+  it("removes every locking clause form", () => {
+    for (const clause of [
+      "FOR UPDATE",
+      "FOR SHARE",
+      "LOCK IN SHARE MODE",
+      "for update nowait",
+      "FOR SHARE SKIP LOCKED",
+    ]) {
+      expect(
+        sqlconnector.withoutLockingReads(`SELECT id FROM person WHERE id IN ?\n   ${clause}`)
+      ).to.equal("SELECT id FROM person WHERE id IN ?");
+    }
+  });
+
+  it("leaves plain reads and { sql } options untouched apart from the clause", () => {
+    expect(sqlconnector.withoutLockingReads("SELECT 1")).to.equal("SELECT 1");
+    expect(
+      sqlconnector.withoutLockingReads({ sql: "SELECT 1 FOR UPDATE", timeout: 5 })
+    ).to.deep.equal({ sql: "SELECT 1", timeout: 5 });
+  });
+});
+
+describe("SqlConnector.withSnapshotReads", () => {
+  const original = sqlconnector.getConnection;
+  let connection;
+
+  beforeEach(() => {
+    connection = txConnection();
+    connection.execute = async (sql) => {
+      connection.calls.push(sql);
+      return [[], []];
+    };
+    sqlconnector.getConnection = async () => connection;
+  });
+  afterEach(() => {
+    sqlconnector.getConnection = original;
+  });
+
+  it("runs a READ ONLY transaction and sends no locking reads", async () => {
+    const result = await sqlconnector.withSnapshotReads(async (conn) => {
+      await sqlconnector.runQuery(conn, "SELECT id FROM person WHERE id IN ? FOR UPDATE", [[1]]);
+      await sqlconnector.runExecute(conn, "SELECT id FROM court WHERE id = ? LOCK IN SHARE MODE", [1]);
+      return "checked";
+    });
+
+    expect(result).to.equal("checked");
+    expect(connection.calls).to.deep.equal([
+      "START TRANSACTION READ ONLY",
+      "SELECT id FROM person WHERE id IN ?",
+      "SELECT id FROM court WHERE id = ?",
+      "COMMIT",
+    ]);
+    expect(connection.released).to.equal(1);
+  });
+
+  it("offers only query and execute, so nothing can bypass the rewrite", async () => {
+    await sqlconnector.withSnapshotReads(async (conn) => {
+      expect(Object.keys(conn).sort()).to.deep.equal(["execute", "query"]);
+    });
+  });
+});
