@@ -4,13 +4,11 @@ import request from "supertest";
 
 import bookingsRouter from "../../bookings/api.js";
 import errorHandler from "../../utils/errorHandler.js";
-import sessionSettings from "../../club/sessionDurationSettings.js";
+import settingsReader from "../../club/settingsReader.js";
 import { DEFAULT_SESSION_DURATION_POLICY } from "../../club/sessionDurationPolicy.js";
-import bumpabilitySettings from "../../club/bumpabilitySettings.js";
 import { DEFAULT_BUMPABILITY_POLICY } from "../../club/bumpabilityPolicy.js";
 
-const originalGetPolicy = sessionSettings.getSessionDurationPolicy;
-const originalGetBumpabilityPolicy = bumpabilitySettings.getBumpabilityPolicy;
+const originalReadClubSettings = settingsReader.readClubSettings;
 
 function createApp() {
   const app = express();
@@ -26,29 +24,41 @@ function createApp() {
 }
 
 describe("GET /bookings/session-rules", () => {
+  let sessionPolicy;
+  let bumpabilityPolicy;
+  let reads;
+
   beforeEach(() => {
-    sessionSettings.getSessionDurationPolicy = async () => DEFAULT_SESSION_DURATION_POLICY;
-    bumpabilitySettings.getBumpabilityPolicy = async () => DEFAULT_BUMPABILITY_POLICY;
+    sessionPolicy = DEFAULT_SESSION_DURATION_POLICY;
+    bumpabilityPolicy = DEFAULT_BUMPABILITY_POLICY;
+    reads = [];
+    settingsReader.readClubSettings = async (connection, keys) => {
+      reads.push(keys);
+      return {
+        session_duration_policy: sessionPolicy,
+        bumpability_policy: bumpabilityPolicy,
+      };
+    };
   });
   afterEach(() => {
-    sessionSettings.getSessionDurationPolicy = originalGetPolicy;
-    bumpabilitySettings.getBumpabilityPolicy = originalGetBumpabilityPolicy;
+    settingsReader.readClubSettings = originalReadClubSettings;
   });
 
   it("uses the current club policy and prevents response caching", async () => {
     const policy = structuredClone(DEFAULT_SESSION_DURATION_POLICY);
     policy[2].full_duration_min = 75;
     policy[2].full_allotment.min_non_repeaters = 1;
-    sessionSettings.getSessionDurationPolicy = async () => policy;
+    sessionPolicy = policy;
     const response = await request(createApp()).get('/bookings/session-rules')
       .query({ player_types: '1000,2000' });
     expect(response.status).to.equal(200);
     expect(response.body.max_duration_min).to.equal(75);
     expect(response.headers['cache-control']).to.equal('no-store');
+    expect(reads).to.deep.equal([['session_duration_policy', 'bumpability_policy']]);
   });
 
   it("propagates settings read failures", async () => {
-    sessionSettings.getSessionDurationPolicy = async () => { throw new Error('Unavailable'); };
+    settingsReader.readClubSettings = async () => { throw new Error('Unavailable'); };
     const response = await request(createApp()).get('/bookings/session-rules')
       .query({ player_types: '1000' });
     expect(response.status).to.equal(500);
@@ -78,7 +88,7 @@ describe("GET /bookings/session-rules", () => {
   });
 
   it("uses the current club bumpability policy", async () => {
-    bumpabilitySettings.getBumpabilityPolicy = async () => "any_repeater";
+    bumpabilityPolicy = "any_repeater";
     const response = await request(createApp())
       .get("/bookings/session-rules")
       .query({ player_types: "1000,2000" });

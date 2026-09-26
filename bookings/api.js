@@ -3,8 +3,7 @@ const { z } = require('zod')
 const { validate, hhmm, isoDate, intLike, requiredIntLike, csvIntList } = require('./../utils/validate')
 const matchcontroller = require('./controller')
 const { resolveSessionRules, MATCH_PLAYER_TYPE_IDS } = require('./sessionRules')
-const sessionDurationSettings = require('../club/sessionDurationSettings')
-const bumpabilitySettings = require('../club/bumpabilitySettings')
+const settingsReader = require('../club/settingsReader')
 const { checkBookingPermissions, validatePatchRequest } = require('./middleware')
 const { authGuard } = require('../middleware/clientauth')
 const pusher = require('./../pusher/Pusher')
@@ -145,10 +144,17 @@ router.get('/session-rules', authGuard, validate(
 ),
      async (req, res, next) => {
           try {
-               const policy = await sessionDurationSettings.getSessionDurationPolicy()
-               const bumpabilityPolicy = await bumpabilitySettings.getBumpabilityPolicy()
+               // Both policies in one query on one connection; read fresh, not from Redis
+               const settings = await settingsReader.readClubSettings(null, [
+                    'session_duration_policy',
+                    'bumpability_policy',
+               ])
                res.set('Cache-Control', 'no-store').json(
-                    resolveSessionRules(req.query.player_types, policy, bumpabilityPolicy)
+                    resolveSessionRules(
+                         req.query.player_types,
+                         settings.session_duration_policy,
+                         settings.bumpability_policy
+                    )
                )
           } catch (err) {
                next(err)
