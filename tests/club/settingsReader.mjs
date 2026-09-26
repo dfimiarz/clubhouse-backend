@@ -5,15 +5,15 @@ import { readClubSettings } from "../../club/settingsReader.js";
 import { DEFAULT_BUMPABILITY_POLICY } from "../../club/bumpabilityPolicy.js";
 
 describe("readClubSettings", () => {
-  const originalRunQuery = sqlconnector.runQuery;
+  const originalRunExecute = sqlconnector.runExecute;
 
   afterEach(() => {
-    sqlconnector.runQuery = originalRunQuery;
+    sqlconnector.runExecute = originalRunExecute;
   });
 
   it("reads every requested key in one query and applies defaults", async () => {
     const calls = [];
-    sqlconnector.runQuery = async (_connection, query, values) => {
+    sqlconnector.runExecute = async (_connection, query, values) => {
       calls.push({ query, values });
       return [{ setting_key: "prevent_concurrent_member_bookings", setting_value: "0" }];
     };
@@ -24,9 +24,10 @@ describe("readClubSettings", () => {
     ]);
 
     expect(calls).to.have.length(1);
-    expect(calls[0].query).to.include("setting_key IN ?");
-    expect(calls[0].values[1]).to.deep.equal([
-      ["prevent_concurrent_member_bookings", "bumpability_policy"],
+    expect(calls[0].query).to.include("setting_key IN (?, ?)");
+    expect(calls[0].values.slice(1)).to.deep.equal([
+      "prevent_concurrent_member_bookings",
+      "bumpability_policy",
     ]);
     expect(settings).to.deep.equal({
       prevent_concurrent_member_bookings: false,
@@ -35,7 +36,7 @@ describe("readClubSettings", () => {
   });
 
   it("returns only the requested keys", async () => {
-    sqlconnector.runQuery = async () => [];
+    sqlconnector.runExecute = async () => [];
 
     const settings = await readClubSettings({}, ["rebooking_prompt_enabled"]);
 

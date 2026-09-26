@@ -42,6 +42,13 @@ describe("member rules in addBooking", () => {
     personLocks = 0;
     passLookups = 0;
     sql.runExecute = async (_connection, query) => {
+      if (query.includes("FROM club_setting")) {
+        settingsReads += 1;
+        return [
+          { setting_key: "session_duration_policy", setting_value: JSON.stringify(policy) },
+          { setting_key: "bumpability_policy", setting_value: bumpabilityPolicy },
+        ];
+      }
       throw new Error(`Unexpected execute: ${query}`);
     };
     sql.runQuery = async (_connection, query, values) => {
@@ -53,13 +60,7 @@ describe("member rules in addBooking", () => {
         const [hour, minute] = body.end.split(":").map(Number);
         return [{ utc_start: 9 * 3600, utc_end: hour * 3600 + minute * 60, utc_req_time: 9 * 3600, numeric_date: 20260905, loc_req_date: 20260905, schedule_id: 1 }];
       }
-      if (query.includes("FROM club_setting")) {
-        settingsReads += 1;
-        return [
-          { setting_key: "session_duration_policy", setting_value: JSON.stringify(policy) },
-          { setting_key: "bumpability_policy", setting_value: bumpabilityPolicy },
-        ];
-      }
+      if (query.includes("FROM club_setting")) throw new Error("club settings must be read once, via runExecute");
       if (query.includes("SELECT id FROM person")) {
         personLocks += 1;
         return [{ id: 7 }, { id: 8 }];

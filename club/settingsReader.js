@@ -18,13 +18,14 @@ async function readClubSettings(connection, keys) {
         return sqlconnector.withConnection((conn) => readClubSettings(conn, keys));
     }
 
-    const rows = await sqlconnector.runQuery(
+    // Prepared statement like the single-setting readers; one placeholder per key
+    const rows = await sqlconnector.runExecute(
         connection,
         `SELECT setting_key, setting_value
          FROM club_setting
          WHERE club = ?
-           AND setting_key IN ?`,
-        [CLUB_ID, [keys]]
+           AND setting_key IN (${keys.map(() => "?").join(", ")})`,
+        [CLUB_ID, ...keys]
     );
 
     const resolved = resolveSettings(Array.isArray(rows) ? rows : [], {
