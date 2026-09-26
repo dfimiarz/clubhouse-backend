@@ -283,19 +283,24 @@ async function isGuestsAccompaniedByMemberRequired(connection) {
  *
  * @param {*} connection
  * @param {{ date: string, players?: Array }} booking
+ * @param {{ settingEnabled?: boolean, guests?: Array<{ id: number }> }} [options]
+ *   Club flag and findPassRequiringPlayers result the caller already read in
+ *   this transaction; each is read here when omitted
  */
-async function assertGuestsAccompaniedByMember(connection, booking) {
+async function assertGuestsAccompaniedByMember(connection, booking, { settingEnabled, guests } = {}) {
     const personIds = personIdsFromPlayers(booking?.players);
     if (personIds.length === 0) {
         return;
     }
 
-    const settingEnabled = await isGuestsAccompaniedByMemberRequired(connection);
+    if (typeof settingEnabled !== "boolean") {
+        settingEnabled = await isGuestsAccompaniedByMemberRequired(connection);
+    }
     if (settingEnabled !== true) {
         return;
     }
 
-    const guests = await findPassRequiringPlayers(
+    guests ??= await findPassRequiringPlayers(
         connection,
         personIds,
         booking.date
@@ -323,14 +328,17 @@ async function assertGuestsAccompaniedByMember(connection, booking) {
  *
  * @param {*} connection
  * @param {{ date: string, start: string, players?: Array }} booking
+ * @param {{ guests?: Array<{ id: number, firstname: string, lastname: string }> }} [options]
+ *   findPassRequiringPlayers result the caller already read in this
+ *   transaction; read here when omitted
  */
-async function assertGuestsHaveValidPasses(connection, booking) {
+async function assertGuestsHaveValidPasses(connection, booking, { guests } = {}) {
     const personIds = personIdsFromPlayers(booking?.players);
     if (personIds.length === 0) {
         return;
     }
 
-    const guests = await findPassRequiringPlayers(
+    guests ??= await findPassRequiringPlayers(
         connection,
         personIds,
         booking.date

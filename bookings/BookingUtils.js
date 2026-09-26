@@ -298,11 +298,41 @@ async function insertBooking(connection, booking) {
 }
 
 /**
+ * Activity type row for this club, or null when the type does not exist or is
+ * not enabled here. min_participant is the effective value (club override,
+ * else global). Takes a share lock, so run it inside a transaction.
+ *
+ * @param {*} connection
+ * @param {number|string} typeId
+ * @returns {Promise<Object|null>}
+ */
+async function selectActivityType(connection, typeId) {
+    const activity_type_q = `SELECT
+                                at.\`desc\` AS booking_type_desc,
+                                at.lbl AS booking_type_lbl,
+                                at.calendar_style,
+                                at.member_rebookable,
+                                at.same_day_only,
+                                at.\`group\` AS group_id,
+                                COALESCE(ac.min_participant, at.min_participant) AS min_participant
+                             FROM activity_type at
+                             JOIN activity_club ac ON ac.activity_type_id = at.id
+                             WHERE at.id = ?
+                               AND ac.club_id = ?
+                             LOCK IN SHARE MODE`;
+
+    const rows = await sqlconnector.runQuery(connection, activity_type_q, [typeId, CLUB_ID]);
+
+    return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+}
+
+/**
  * 
  * @param {*} connection 
  * @param {*} initValues 
  * 
- * Get a fresh booking. Must be run within a transaction
+ * Get a fresh booking. Must be run within a transaction. Pass
+ * initValues.activity_type_row (from selectActivityType) to skip re-reading it.
  */
 async function getNewBooking(connection, initValues) {
 
@@ -326,38 +356,20 @@ async function getNewBooking(connection, initValues) {
         etag: null
     }
 
-    // Type must exist and be enabled for this club; effective min via COALESCE
-    const activity_type_q = `SELECT
-                                at.\`desc\` AS booking_type_desc,
-                                at.lbl AS booking_type_lbl,
-                                at.calendar_style,
-                                at.member_rebookable,
-                                at.same_day_only,
-                                at.\`group\` AS group_id,
-                                COALESCE(ac.min_participant, at.min_participant) AS min_participant
-                             FROM activity_type at
-                             JOIN activity_club ac ON ac.activity_type_id = at.id
-                             WHERE at.id = ?
-                               AND ac.club_id = ?
-                             LOCK IN SHARE MODE`;
+    const activityType = initValues.activity_type_row
+        ?? await selectActivityType(connection, booking.type);
 
-    const activity_type_result = await sqlconnector.runQuery(
-        connection,
-        activity_type_q,
-        [booking.type, CLUB_ID]
-    );
-
-    if (!Array.isArray(activity_type_result) || activity_type_result.length !== 1) {
+    if (!activityType) {
         return null
     }
 
-    booking.booking_type_desc = activity_type_result[0].booking_type_desc;
-    booking.booking_type_lbl = activity_type_result[0].booking_type_lbl;
-    booking.calendar_style = activity_type_result[0].calendar_style;
-    booking.member_rebookable = activity_type_result[0].member_rebookable;
-    booking.same_day_only = activity_type_result[0].same_day_only;
-    booking.group_id = activity_type_result[0].group_id;
-    booking.min_participant = activity_type_result[0].min_participant;
+    booking.booking_type_desc = activityType.booking_type_desc;
+    booking.booking_type_lbl = activityType.booking_type_lbl;
+    booking.calendar_style = activityType.calendar_style;
+    booking.member_rebookable = activityType.member_rebookable;
+    booking.same_day_only = activityType.same_day_only;
+    booking.group_id = activityType.group_id;
+    booking.min_participant = activityType.min_participant;
 
     let bookingtime_result = await sqlconnector.runQuery(connection, booking_time_q, {
         date: booking.date,
@@ -439,6 +451,7 @@ module.exports = {
     getBooking,
     insertBooking,
     getNewBooking,
+    selectActivityType,
     checkOverlap,
     checkPlayerOverlap,
 }

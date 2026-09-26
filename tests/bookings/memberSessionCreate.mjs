@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import sql from "../../db/SqlConnector.js";
-import { addBooking } from "../../bookings/controller.js";
+import { addBooking, checkNewBooking } from "../../bookings/controller.js";
 import { DEFAULT_SESSION_DURATION_POLICY } from "../../club/sessionDurationPolicy.js";
 
 const originalTransaction = sql.withTransaction;
@@ -18,6 +18,9 @@ describe("member rules in addBooking", () => {
   let policy;
   let bumpabilityPolicy;
   let restrictedSettings;
+  let settingsReads;
+  let personLocks;
+  let passLookups;
 
   beforeEach(() => {
     inserted = [];
@@ -35,27 +38,32 @@ describe("member rules in addBooking", () => {
       players: [{ id: 7, type: 3000 }, { id: 8, type: 1000 }],
     };
     sql.withTransaction = async (work) => work({});
-    sql.runExecute = async (_connection, query, values) => {
-      if (query.includes('FROM club_setting')) {
-        if (values?.[1] === "bumpability_policy") {
-          return [{ setting_key: "bumpability_policy", setting_value: bumpabilityPolicy }];
-        }
-        return [{ setting_key: 'session_duration_policy', setting_value: JSON.stringify(policy) }];
-      }
+    settingsReads = 0;
+    personLocks = 0;
+    passLookups = 0;
+    sql.runExecute = async (_connection, query) => {
       throw new Error(`Unexpected execute: ${query}`);
     };
     sql.runQuery = async (_connection, query, values) => {
       if (query.includes("SELECT p.id,m.role")) return [{ id: 7, role: 2000 }, { id: 8, role: 2000 }];
       if (query.includes("FROM participant_type")) return body.players.map(player => ({ id: player.type }));
-      if (query.includes("SELECT at.id,")) return [{ id: body.type, min_participant: 2 }];
       if (query.includes("FROM activity_supported")) return [{ supported: 1 }];
       if (query.includes("AS booking_type_desc")) return [{ group_id: body.type === 1000 ? 1 : 2, same_day_only: 1, min_participant: 2 }];
       if (query.includes("AS schedule_id")) {
         const [hour, minute] = body.end.split(":").map(Number);
         return [{ utc_start: 9 * 3600, utc_end: hour * 3600 + minute * 60, utc_req_time: 9 * 3600, numeric_date: 20260905, loc_req_date: 20260905, schedule_id: 1 }];
       }
-      if (query.includes("FROM club_setting")) return [];
-      if (query.includes("SELECT id FROM person")) return [{ id: 7 }, { id: 8 }];
+      if (query.includes("FROM club_setting")) {
+        settingsReads += 1;
+        return [
+          { setting_key: "session_duration_policy", setting_value: JSON.stringify(policy) },
+          { setting_key: "bumpability_policy", setting_value: bumpabilityPolicy },
+        ];
+      }
+      if (query.includes("SELECT id FROM person")) {
+        personLocks += 1;
+        return [{ id: 7 }, { id: 8 }];
+      }
       if (query.includes("FOR UPDATE")) {
         if (query.includes("court = ?") && query.includes("start_at")) {
           overlapQuery = query;
@@ -67,7 +75,10 @@ describe("member rules in addBooking", () => {
         }
         return [];
       }
-      if (query.includes("rt.requires_pass = 1")) return [];
+      if (query.includes("rt.requires_pass = 1")) {
+        passLookups += 1;
+        return [];
+      }
       if (query.includes("r.type = ?")) return restrictedSettings
         ? [{ id: 7, firstname: 'Jane', lastname: 'Doe', role_id: 1500, role_label: 'Junior' }] : [];
       if (query.includes("FROM club_role_setting")) return Object.entries(restrictedSettings).map(([setting_key, value]) => ({
@@ -173,6 +184,24 @@ describe("member rules in addBooking", () => {
       9 * 3600,
       "2026-09-05",
     ]);
+  });
+
+  it("reads club flags, locks the roster, and finds guests once each", async () => {
+    await addBooking({ body });
+    expect(settingsReads).to.equal(1);
+    expect(personLocks).to.equal(1);
+    expect(passLookups).to.equal(1);
+  });
+
+  it("checkNewBooking runs the same checks without inserting", async () => {
+    body.bumpable = 0;
+    let failure;
+    try { await checkNewBooking({ body }); } catch (error) { failure = error; }
+    expect(failure).to.have.property("message", "Explain the session rule override in the note");
+
+    body.bumpable = 1;
+    await checkNewBooking({ body });
+    expect(inserted).to.deep.equal([]);
   });
 
   it("writes an explained override within the absolute maximum", async () => {

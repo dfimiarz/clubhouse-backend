@@ -137,9 +137,14 @@ async function lockPersonsForUpdate(connection, personIds) {
  *
  * @param {*} connection
  * @param {{ group_id?: unknown, players?: Array }} booking
+ * @param {{ settingEnabled?: boolean }} [options] Club flag the caller already
+ *   read in this transaction; read here when omitted
+ * @returns {Promise<boolean>} true when the roster was locked and must be checked
  */
-async function lockRosterIfNeeded(connection, booking) {
-    const settingEnabled = await isPreventConcurrentMemberBookingsEnabled(connection);
+async function lockRosterIfNeeded(connection, booking, { settingEnabled } = {}) {
+    if (typeof settingEnabled !== "boolean") {
+        settingEnabled = await isPreventConcurrentMemberBookingsEnabled(connection);
+    }
     const personIds = personIdsFromPlayers(booking?.players);
 
     if (
@@ -164,9 +169,13 @@ async function lockRosterIfNeeded(connection, booking) {
  *
  * @param {*} connection
  * @param {{ date: string, utc_start?: number, utc_end?: number, group_id?: unknown, players?: Array }} booking
+ * @param {{ rosterLocked?: boolean }} [options] Result of the caller's own
+ *   lockRosterIfNeeded for this roster; skips a second setting read and lock
  */
-async function assertNoConcurrentMemberBookings(connection, booking) {
-    const shouldCheck = await lockRosterIfNeeded(connection, booking);
+async function assertNoConcurrentMemberBookings(connection, booking, { rosterLocked } = {}) {
+    const shouldCheck = typeof rosterLocked === "boolean"
+        ? rosterLocked
+        : await lockRosterIfNeeded(connection, booking);
     if (!shouldCheck) {
         return;
     }

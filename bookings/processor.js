@@ -14,9 +14,12 @@ const { assertRestrictedMembersCanPlay } = require('./restrictedMember');
  * Snapshot a booking, take the person mutex when the concurrent-member rule
  * applies, then re-read the row FOR UPDATE. People before the activity so add
  * and move cannot deadlock.
+ *
+ * @returns {Promise<{ booking: Object, rosterLocked: boolean }>} rosterLocked
+ *   feeds assertNoConcurrentMemberBookings so it does not lock again
  */
 async function lockAndReloadForMove(connection, snapshot, etag) {
-    await lockRosterIfNeeded(connection, snapshot);
+    const rosterLocked = await lockRosterIfNeeded(connection, snapshot);
 
     const booking = await getBooking(connection, snapshot.id, transactionType.WRITE_TRANSACTION);
 
@@ -32,7 +35,7 @@ async function lockAndReloadForMove(connection, snapshot, etag) {
         throw new RESTError(422, "Booking has changed. Please refresh");
     }
 
-    return booking;
+    return { booking, rosterLocked };
 }
 
 function rejectUnreadableBooking(booking, id, etag, failVerb) {
@@ -151,7 +154,7 @@ async function changeSessionTime(id, cmd) {
             throw new RESTError(422, "Permission to move denied: " + move_errors[0]);
         }
 
-        const booking = await lockAndReloadForMove(connection, snapshot, etag);
+        const { booking, rosterLocked } = await lockAndReloadForMove(connection, snapshot, etag);
 
         const remove_activity_q = `UPDATE activity SET active = 0 where id = ?`
 
@@ -195,7 +198,7 @@ async function changeSessionTime(id, cmd) {
         }
         //END
 
-        await assertNoConcurrentMemberBookings(connection, movedbooking);
+        await assertNoConcurrentMemberBookings(connection, movedbooking, { rosterLocked });
 
         await assertGuestsAccompaniedByMember(connection, movedbooking);
         await assertGuestsHaveValidPasses(connection, movedbooking);
@@ -275,7 +278,7 @@ async function changeCourt(id, cmd) {
             throw new RESTError(422, "Court does not support this activity");
         }
 
-        const booking = await lockAndReloadForMove(connection, snapshot, etag);
+        const { booking, rosterLocked } = await lockAndReloadForMove(connection, snapshot, etag);
 
         let initValues;
 
@@ -345,7 +348,7 @@ async function changeCourt(id, cmd) {
         }
         //END
 
-        await assertNoConcurrentMemberBookings(connection, movedbooking);
+        await assertNoConcurrentMemberBookings(connection, movedbooking, { rosterLocked });
 
         await assertGuestsAccompaniedByMember(connection, movedbooking);
         await assertGuestsHaveValidPasses(connection, movedbooking);

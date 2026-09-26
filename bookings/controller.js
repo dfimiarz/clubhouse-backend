@@ -6,6 +6,7 @@ const SQLErrorFactory = require("./../utils/SqlErrorFactory");
 const RESTError = require("./../utils/RESTError");
 const {
   getNewBooking,
+  selectActivityType,
   insertBooking,
   checkOverlap,
   getBooking,
@@ -15,19 +16,28 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 const clubcontroller = require("../club/controller");
 const { suggestPlayerTypes, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 const { memberSessionRuleError } = require("./sessionRules");
-const sessionDurationSettings = require("../club/sessionDurationSettings");
-const bumpabilitySettings = require("../club/bumpabilitySettings");
+const { readClubSettings } = require("../club/settingsReader");
 const {
+  personIdsFromPlayers,
   assertNoConcurrentMemberBookings,
   lockRosterIfNeeded,
 } = require("./playerOverlap");
 const {
+  findPassRequiringPlayers,
   assertGuestsAccompaniedByMember,
   assertGuestsHaveValidPasses,
 } = require("./guestPass");
 
 const CLUB_ID = process.env.CLUB_ID;
 const { assertRestrictedMembersCanPlay } = require("./restrictedMember");
+
+// Club flags validateNewBooking reads, all in one query
+const CREATE_SETTING_KEYS = [
+  "session_duration_policy",
+  "bumpability_policy",
+  "prevent_concurrent_member_bookings",
+  "require_guests_accompanied_by_member",
+];
 
 const ACTIVITY_END_DT = "activity.end_at";
 const UTC_NOW_DT = "UTC_TIMESTAMP()";
@@ -329,14 +339,21 @@ function personsCoveringBookingDate(rows, requestedIds) {
 }
 
 /**
+ * Every create-time check for a new booking, in lock order: people before
+ * activities, guest passes after people. Returns the booking ready for
+ * insertBooking, or throws a RESTError naming the first failure.
  *
- * @param { Request } request
+ * Run inside a READ WRITE transaction. It takes the same locks the insert
+ * relies on, so a check that passes here still holds when the insert follows
+ * in the same transaction.
+ *
+ * @param {*} connection
+ * @param {{ court: number, date: string, start: string, end: string, note?: string, bumpable: number, type: number, players: Array<{ id: number, type: number }> }} body
+ * @returns {Promise<Object>} booking
  */
-async function addBooking(request) {
-  const OPCODE = "ADD_BOOKING";
-
-  const players = request.body.players;
-  const booking_date = request.body.date;
+async function validateNewBooking(connection, body) {
+  const players = body.players;
+  const booking_date = body.date;
 
   //Initialize a hashmap to store player ids and roles
   const playerTypeMap = new Map();
@@ -364,171 +381,200 @@ async function addBooking(request) {
                           AND ? >= m.valid_from 
                           AND ? < m.valid_until`;
 
+  //START Check players
+  const persons_result = await sqlconnector.runQuery(
+    connection,
+    person_check_q,
+    [[uniqueIds], CLUB_ID, booking_date, booking_date]
+  );
+
+  const persons = personsCoveringBookingDate(persons_result, uniqueIds);
+  if (!persons) {
+    throw new RESTError(422, "Person(s) not found");
+  }
+
+  const uniqueTypeIds = [...new Set(players.map((player) => Number(player.type)))];
+  const participant_type_q = `SELECT id
+                              FROM participant_type
+                              WHERE id IN ?
+                              LOCK IN SHARE MODE`;
+  const participant_type_result = await sqlconnector.runQuery(
+    connection,
+    participant_type_q,
+    [[uniqueTypeIds]]
+  );
+  const knownTypeIds = new Set(
+    (Array.isArray(participant_type_result) ? participant_type_result : []).map(
+      (row) => Number(row.id)
+    )
+  );
+  if (uniqueTypeIds.some((id) => !knownTypeIds.has(id))) {
+    throw new RESTError(422, "Invalid player type");
+  }
+
+  const activityType = await selectActivityType(connection, body.type);
+  if (!activityType) {
+    throw new RESTError(422, "Invalid booking type");
+  }
+
+  const min_participant = activityType.min_participant ?? 1;
+  if (players.length < min_participant) {
+    throw new RESTError(
+      422,
+      `Activity requires at least ${min_participant} participant${min_participant === 1 ? "" : "s"}`
+    );
+  }
+
+  // Court must belong to this club and support the activity type
+  const court_support_q = `SELECT 1
+                           FROM activity_supported s
+                           JOIN court c ON c.id = s.court
+                           WHERE s.court = ?
+                             AND s.activity_type = ?
+                             AND c.club = ?
+                           LOCK IN SHARE MODE`;
+  const court_support_result = await sqlconnector.runQuery(
+    connection,
+    court_support_q,
+    [body.court, body.type, CLUB_ID]
+  );
+
+  if (
+    !(
+      Array.isArray(court_support_result) &&
+      court_support_result.length === 1
+    )
+  ) {
+    throw new RESTError(422, "Court does not support this activity");
+  }
+
+  const initValues = {
+    court: body.court,
+    start: body.start,
+    date: body.date,
+    end: body.end,
+    notes: body.note,
+    bumpable: body.bumpable,
+    type: body.type,
+    activity_type_row: activityType,
+  };
+
+  initValues.players = persons.map((person) => ({
+    person_id: person.id,
+    member_role_id: person.role,
+    player_type_id: playerTypeMap.get(person.id),
+  }));
+
+  const booking = await getNewBooking(connection, initValues);
+
+  if (!booking) {
+    log(appLogLevels.ERROR, `Unable to create a new booking. Values ${JSON.stringify(initValues)}`);
+    throw new RESTError(500, "Unable to create a new booking");
+  }
+
+  //Check permissions
+  const errors = checkPermission("create", booking);
+
+  if (errors.length > 0) {
+    log(appLogLevels.ERROR, `Booking permission denied. Booking: ${JSON.stringify(booking)} Error: ${errors[0]}`);
+    throw new RESTError(422, "Create permission denied: " + errors[0]);
+  }
+
+  // Every club flag this path needs, in one read on this transaction
+  const settings = await readClubSettings(connection, CREATE_SETTING_KEYS);
+
+  const ruleError = memberSessionRuleError(
+    booking,
+    settings.session_duration_policy,
+    settings.bumpability_policy
+  );
+  if (ruleError) {
+    throw new RESTError(422, ruleError);
+  }
+
+  // People before any activity FOR UPDATE (same order as CHANGE_TIME / CHANGE_COURT)
+  const rosterLocked = await lockRosterIfNeeded(connection, booking, {
+    settingEnabled: settings.prevent_concurrent_member_bookings,
+  });
+
+  //START Check for overlapping bookings
+  const overlapping_bookings = await checkOverlap(
+    connection,
+    booking.utc_end,
+    booking.utc_start,
+    booking.court_id
+  );
+
+  if (overlapping_bookings.length !== 0) {
+    const overlap_record = {
+      booking_date: booking.date,
+      booking_start: booking.start,
+      booking_end: booking.end,
+      booking_court_id: booking.court_id,
+      overlapping_ids: Array.from(overlapping_bookings),
+    };
+
+    log(appLogLevels.WARNING, `Booking overlap found: ${JSON.stringify(overlap_record)}`);
+    throw new RESTError(422, "Booking overlap found.");
+  }
+  //END
+
+  await assertNoConcurrentMemberBookings(connection, booking, { rosterLocked });
+
+  // After the person locks: this read takes a share lock on guest_pass.
+  // One read feeds both guest checks.
+  const rosterIds = personIdsFromPlayers(booking.players);
+  const guests = rosterIds.length > 0
+    ? await findPassRequiringPlayers(connection, rosterIds, booking.date)
+    : [];
+
+  await assertGuestsAccompaniedByMember(connection, booking, {
+    settingEnabled: settings.require_guests_accompanied_by_member,
+    guests,
+  });
+  await assertGuestsHaveValidPasses(connection, booking, { guests });
+  await assertRestrictedMembersCanPlay(connection, booking);
+
+  return booking;
+}
+
+/**
+ *
+ * @param { Request } request
+ */
+async function addBooking(request) {
+  const OPCODE = "ADD_BOOKING";
+
   try {
     await sqlconnector.withTransaction(async (connection) => {
-
-      //START Check players
-      const persons_result = await sqlconnector.runQuery(
-        connection,
-        person_check_q,
-        [[uniqueIds], CLUB_ID, booking_date, booking_date]
-      );
-
-      const persons = personsCoveringBookingDate(persons_result, uniqueIds);
-      if (!persons) {
-        throw new RESTError(422, "Person(s) not found");
-      }
-
-      const uniqueTypeIds = [...new Set(players.map((player) => Number(player.type)))];
-      const participant_type_q = `SELECT id
-                                  FROM participant_type
-                                  WHERE id IN ?
-                                  LOCK IN SHARE MODE`;
-      const participant_type_result = await sqlconnector.runQuery(
-        connection,
-        participant_type_q,
-        [[uniqueTypeIds]]
-      );
-      const knownTypeIds = new Set(
-        (Array.isArray(participant_type_result) ? participant_type_result : []).map(
-          (row) => Number(row.id)
-        )
-      );
-      if (uniqueTypeIds.some((id) => !knownTypeIds.has(id))) {
-        throw new RESTError(422, "Invalid player type");
-      }
-
-      // Type must be enabled for this club; effective min (club override or global)
-      const activity_type_q = `SELECT at.id,
-                                      COALESCE(ac.min_participant, at.min_participant) AS min_participant
-                               FROM activity_type at
-                               JOIN activity_club ac ON ac.activity_type_id = at.id
-                               WHERE at.id = ?
-                                 AND ac.club_id = ?
-                               LOCK IN SHARE MODE`;
-      const activity_type_result = await sqlconnector.runQuery(
-        connection,
-        activity_type_q,
-        [request.body.type, CLUB_ID]
-      );
-
-      if (
-        !(
-          Array.isArray(activity_type_result) &&
-          activity_type_result.length === 1
-        )
-      ) {
-        throw new RESTError(422, "Invalid booking type");
-      }
-
-      const min_participant = activity_type_result[0].min_participant ?? 1;
-      if (players.length < min_participant) {
-        throw new RESTError(
-          422,
-          `Activity requires at least ${min_participant} participant${min_participant === 1 ? "" : "s"}`
-        );
-      }
-
-      // Court must belong to this club and support the activity type
-      const court_support_q = `SELECT 1
-                               FROM activity_supported s
-                               JOIN court c ON c.id = s.court
-                               WHERE s.court = ?
-                                 AND s.activity_type = ?
-                                 AND c.club = ?
-                               LOCK IN SHARE MODE`;
-      const court_support_result = await sqlconnector.runQuery(
-        connection,
-        court_support_q,
-        [request.body.court, request.body.type, CLUB_ID]
-      );
-
-      if (
-        !(
-          Array.isArray(court_support_result) &&
-          court_support_result.length === 1
-        )
-      ) {
-        throw new RESTError(422, "Court does not support this activity");
-      }
-
-      const initValues = {
-        court: request.body.court,
-        start: request.body.start,
-        date: request.body.date,
-        end: request.body.end,
-        notes: request.body.note,
-        bumpable: request.body.bumpable,
-        type: request.body.type,
-      };
-
-      initValues.players = persons.map((person) => ({
-        person_id: person.id,
-        member_role_id: person.role,
-        player_type_id: playerTypeMap.get(person.id),
-      }));
-
-      const booking = await getNewBooking(connection, initValues);
-
-      if (!booking) {
-        log(appLogLevels.ERROR, `Unable to create a new booking. Values ${JSON.stringify(initValues)}`);
-        throw new RESTError(500, "Unable to create a new booking");
-      }
-
-      //Check permissions
-      const errors = checkPermission("create", booking);
-
-      if (errors.length > 0) {
-        log(appLogLevels.ERROR, `Booking permission denied. Booking: ${JSON.stringify(booking)} Error: ${errors[0]}`);
-        throw new RESTError(422, "Create permission denied: " + errors[0]);
-      }
-
-      let sessionPolicy;
-      let bumpabilityPolicy;
-      if (Number(booking.group_id) === MEMBER_ACTIVITY_GROUP_ID) {
-        sessionPolicy = await sessionDurationSettings.getSessionDurationPolicy(connection);
-        bumpabilityPolicy = await bumpabilitySettings.getBumpabilityPolicy(connection);
-      }
-      const ruleError = memberSessionRuleError(booking, sessionPolicy, bumpabilityPolicy);
-      if (ruleError) {
-        throw new RESTError(422, ruleError);
-      }
-
-      // People before any activity FOR UPDATE (same order as CHANGE_TIME / CHANGE_COURT)
-      await lockRosterIfNeeded(connection, booking);
-
-      //START Check for overlapping bookings
-      const overlapping_bookings = await checkOverlap(
-        connection,
-        booking.utc_end,
-        booking.utc_start,
-        booking.court_id
-      );
-
-      if (overlapping_bookings.length !== 0) {
-        const overlap_record = {
-          booking_date: booking.date,
-          booking_start: booking.start,
-          booking_end: booking.end,
-          booking_court_id: booking.court_id,
-          overlapping_ids: Array.from(overlapping_bookings),
-        };
-
-        log(appLogLevels.WARNING, `Booking overlap found: ${JSON.stringify(overlap_record)}`);
-        throw new RESTError(422, "Booking overlap found.");
-      }
-      //END
-
-      await assertNoConcurrentMemberBookings(connection, booking);
-
-      await assertGuestsAccompaniedByMember(connection, booking);
-      await assertGuestsHaveValidPasses(connection, booking);
-      await assertRestrictedMembersCanPlay(connection, booking);
+      const booking = await validateNewBooking(connection, request.body);
 
       await insertBooking(connection, booking);
 
       log(appLogLevels.INFO, `Booking added: ${JSON.stringify(booking)}`);
     }, { mode: "readWrite" });
+  } catch (error) {
+    throw error instanceof RESTError
+      ? error
+      : new SQLErrorFactory.getError(OPCODE, error);
+  }
+}
+
+/**
+ * Dry run of addBooking: the same checks, with nothing written. Resolves when
+ * the booking would be accepted right now; rejects with the RESTError the
+ * create would return.
+ *
+ * @param { Request } request
+ */
+async function checkNewBooking(request) {
+  const OPCODE = "ADD_BOOKING";
+
+  try {
+    await sqlconnector.withTransaction(
+      (connection) => validateNewBooking(connection, request.body),
+      { mode: "readWrite" }
+    );
   } catch (error) {
     throw error instanceof RESTError
       ? error
@@ -768,6 +814,7 @@ async function suggestPlayerTypesForToday(personIds) {
 
 module.exports = {
   addBooking,
+  checkNewBooking,
   getBookingData,
   processPatchCommand,
   getBookingsForDate,
