@@ -233,6 +233,22 @@ router.post('/', authGuard, validate(
 
 })
 
+/**
+ * Dry run of POST /: runs every create-time check without writing, so the
+ * client can confirm a booking before its final step. 204 when it would be
+ * accepted now; otherwise the same error status and message the create returns.
+ */
+router.post('/validate', authGuard, validate(
+     { body: newBookingBody },
+     { logPrefix: "Validate booking validation error" }
+), (req, res, next) => {
+     matchcontroller.checkNewBooking(req)
+          .then(() => {
+               res.set('Cache-Control', 'no-store').status(204).send()
+          })
+          .catch(next)
+})
+
 router.get('/:id', authGuard, (req, res, next) => {
 
      const id = req.params.id ? req.params.id : null;

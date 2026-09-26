@@ -7,6 +7,7 @@ import bookingsController from "../../bookings/controller.js";
 import errorHandler from "../../utils/errorHandler.js";
 
 const originalAddBooking = bookingsController.addBooking;
+const originalCheckNewBooking = bookingsController.checkNewBooking;
 
 function createApp() {
   const app = express();
@@ -121,5 +122,54 @@ describe("New booking validation", () => {
       param: "note",
       msg: "Note too long",
     });
+  });
+});
+
+describe("POST /bookings/validate", () => {
+  let checked;
+
+  beforeEach(() => {
+    checked = null;
+    bookingsController.addBooking = async () => {
+      throw new Error("validate must not create a booking");
+    };
+    bookingsController.checkNewBooking = async (req) => {
+      checked = req.body;
+    };
+  });
+
+  afterEach(() => {
+    bookingsController.addBooking = originalAddBooking;
+    bookingsController.checkNewBooking = originalCheckNewBooking;
+  });
+
+  function validateRequest(body) {
+    return request(createApp()).post("/bookings/validate").send(body);
+  }
+
+  it("returns 204 when the booking would be accepted", async () => {
+    const response = await validateRequest(validBooking());
+
+    expect(response.status).to.equal(204);
+    expect(checked).to.include({ court: 1, date: "2026-08-04" });
+  });
+
+  it("uses the create schema", async () => {
+    const response = await validateRequest(validBooking({ players: [] }));
+
+    expect(response.status).to.equal(422);
+    expect(checked).to.equal(null);
+  });
+
+  it("returns the create error unchanged", async () => {
+    const { default: RESTError } = await import("../../utils/RESTError.js");
+    bookingsController.checkNewBooking = async () => {
+      throw new RESTError(422, "Booking overlap found.");
+    };
+
+    const response = await validateRequest(validBooking());
+
+    expect(response.status).to.equal(422);
+    expect(response.body).to.equal("Booking overlap found.");
   });
 });
