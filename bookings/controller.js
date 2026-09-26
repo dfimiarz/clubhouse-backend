@@ -163,7 +163,7 @@ async function getBookingsForDate(date, filters = {}) {
       LEFT JOIN role r on r.id = m.role
       LEFT JOIN role_type rt on rt.id = r.type
       WHERE p.activity in ( ? )
-      ORDER BY activity FOR SHARE`;
+      ORDER BY activity`;
 
   const activity_query = `SELECT
                                 activity.id,
@@ -201,12 +201,14 @@ async function getBookingsForDate(date, filters = {}) {
                                 ${datePredicate}
                                 AND active = 1
                                 AND cl.id = ?
-                                ${filter_predicates.join("\n                                ")}
-                            FOR SHARE`;
+                                ${filter_predicates.join("\n                                ")}`;
 
   try {
     // Fetch under a read-only transaction; assemble in memory after commit
-    // so assembly bugs cannot trigger a rollback.
+    // so assembly bugs cannot trigger a rollback. Plain reads, no FOR SHARE:
+    // the transaction's snapshot keeps both queries consistent, and share
+    // locks here would stall inserts while every client refetches after a
+    // booking_change push.
     const { bookings_array, players_array } = await sqlconnector.withTransaction(
       async (connection) => {
         const bookings_array = await sqlconnector.runQuery(

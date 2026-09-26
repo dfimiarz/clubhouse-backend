@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import sqlconnector from "../../db/SqlConnector.js";
 import express from "express";
 import request from "supertest";
 
@@ -150,5 +151,36 @@ describe("GET /bookings list filter validation", () => {
       });
 
     expect(response.status).to.equal(422);
+  });
+});
+
+describe("getBookingsForDate locking", () => {
+  const originalTransaction = sqlconnector.withTransaction;
+  const originalRunQuery = sqlconnector.runQuery;
+
+  afterEach(() => {
+    sqlconnector.withTransaction = originalTransaction;
+    sqlconnector.runQuery = originalRunQuery;
+  });
+
+  it("reads activities and participants without share locks", async () => {
+    const queries = [];
+    let mode;
+    sqlconnector.withTransaction = async (work, options) => {
+      mode = options?.mode;
+      return work({});
+    };
+    sqlconnector.runQuery = async (_connection, query) => {
+      queries.push(query);
+      return queries.length === 1 ? [{ id: 1, start_min: 540, end_min: 600 }] : [];
+    };
+
+    await originalGetBookingsForDate("2026-09-26");
+
+    expect(mode).to.equal("readOnly");
+    expect(queries).to.have.length(2);
+    queries.forEach((query) => {
+      expect(query).to.not.match(/FOR SHARE|LOCK IN SHARE MODE|FOR UPDATE/);
+    });
   });
 });
