@@ -13,6 +13,7 @@ const {
   guestsAreUnaccompanied,
   assertGuestsAccompaniedByMember,
   assertGuestsHaveValidPasses,
+  assertGuestRules,
 } = guestPass;
 
 const originalRunQuery = sqlconnector.runQuery;
@@ -158,21 +159,32 @@ describe("guestsAreUnaccompanied", () => {
 });
 
 describe("assertGuestsAccompaniedByMember", () => {
+  const originalRunExecute = sqlconnector.runExecute;
+
   afterEach(() => {
     sqlconnector.runQuery = originalRunQuery;
+    sqlconnector.runExecute = originalRunExecute;
   });
+
+  // Club settings arrive through readClubSettings (runExecute) as raw rows
+  function mockSetting(settingValue, reads = []) {
+    sqlconnector.runExecute = async (_connection, query) => {
+      if (!query.includes("club_setting")) {
+        throw new Error(`unexpected execute: ${query}`);
+      }
+      reads.push(query);
+      return settingValue === undefined
+        ? []
+        : [{ setting_key: SETTING_KEY, setting_value: settingValue }];
+    };
+  }
 
   /**
    * @param {{ settingValue?: string, guests?: Array }} opts
    */
   function mockQueries({ settingValue, guests = [] } = {}) {
+    mockSetting(settingValue);
     sqlconnector.runQuery = async (_connection, query) => {
-      if (query.includes("club_setting")) {
-        if (settingValue === undefined) {
-          return [];
-        }
-        return [{ setting_key: SETTING_KEY, setting_value: settingValue }];
-      }
       if (query.includes("requires_pass")) {
         return guests;
       }
@@ -193,11 +205,8 @@ describe("assertGuestsAccompaniedByMember", () => {
 
   it("skips the check when the club flag is off", async () => {
     const queries = [];
-    sqlconnector.runQuery = async (_connection, query) => {
-      queries.push(query);
-      if (query.includes("club_setting")) {
-        return [{ setting_key: SETTING_KEY, setting_value: "0" }];
-      }
+    mockSetting("0", queries);
+    sqlconnector.runQuery = async () => {
       throw new Error("should not query guests when the flag is off");
     };
 
@@ -419,5 +428,46 @@ describe("assertGuestsHaveValidPasses", () => {
       expect(error.status).to.equal(422);
       expect(error.payload).to.equal("Jane Doe does not have a valid guest pass.");
     }
+  });
+});
+
+describe("assertGuestRules", () => {
+  afterEach(() => { sqlconnector.runQuery = originalRunQuery; });
+
+  function stubRoster(lookups, { covered }) {
+    sqlconnector.runQuery = async (_connection, query) => {
+      if (query.includes("rt.requires_pass = 1")) {
+        lookups.push(query);
+        return [{ id: 10, firstname: "Jane", lastname: "Doe" }];
+      }
+      if (query.includes("guest_pass_type_setting")) return [];
+      if (query.includes("guest_pass")) return covered ? [{ guest_id: 10, type: 1 }] : [];
+      throw new Error(`Unexpected SQL: ${query}`);
+    };
+  }
+
+  const booking = { date: "2026-09-14", start: "10:00", players: [{ person_id: 10 }, { person_id: 20 }] };
+
+  it("looks guests up once for both rules", async () => {
+    const lookups = [];
+    stubRoster(lookups, { covered: true });
+
+    await assertGuestRules({}, booking, { accompanimentRequired: true });
+
+    expect(lookups).to.have.length(1);
+  });
+
+  it("still applies both rules", async () => {
+    stubRoster([], { covered: true });
+    await assert.rejects(
+      assertGuestRules({}, { ...booking, players: [{ person_id: 10 }] }, { accompanimentRequired: true }),
+      { status: 422, payload: "A guest cannot book without a member." }
+    );
+
+    stubRoster([], { covered: false });
+    await assert.rejects(
+      assertGuestRules({}, booking, { accompanimentRequired: true }),
+      { status: 422 }
+    );
   });
 });

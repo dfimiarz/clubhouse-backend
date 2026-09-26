@@ -1,15 +1,12 @@
 const { z } = require("zod");
 const sqlconnector = require("../db/SqlConnector");
-const { resolveSettings } = require("./settings");
+const settingsReader = require("./settingsReader");
 
 const SETTING_KEY = "require_guests_accompanied_by_member";
 const CLUB_ID = process.env.CLUB_ID;
 
 async function getGuestAccompaniment() {
-    const rows = await sqlconnector.withConnection((connection) => sqlconnector.runExecute(connection,
-        "SELECT setting_key, setting_value FROM club_setting WHERE club = ? AND setting_key = ?",
-        [CLUB_ID, SETTING_KEY]));
-    return resolveSettings(rows)[SETTING_KEY];
+    return (await settingsReader.readClubSettings(null, [SETTING_KEY]))[SETTING_KEY];
 }
 
 async function saveGuestAccompaniment(required) {

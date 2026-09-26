@@ -1,6 +1,6 @@
 const sqlconnector = require("../db/SqlConnector");
 const RESTError = require("../utils/RESTError");
-const { resolveSettings } = require("../club/settings");
+const settingsReader = require("../club/settingsReader");
 const {
     loadSettingsByPassType,
     settingsForPassType,
@@ -261,20 +261,8 @@ function guestsAreUnaccompanied(personIds, guests) {
  * @returns {Promise<boolean>}
  */
 async function isGuestsAccompaniedByMemberRequired(connection) {
-    const rows = await sqlconnector.runQuery(
-        connection,
-        `SELECT setting_key, setting_value
-         FROM club_setting
-         WHERE club = ?
-           AND setting_key = ?`,
-        [CLUB_ID, SETTING_KEY]
-    );
-
-    const resolved = resolveSettings(Array.isArray(rows) ? rows : [], {
-        publicOnly: false,
-    });
-
-    return resolved[SETTING_KEY] === true;
+    const settings = await settingsReader.readClubSettings(connection, [SETTING_KEY]);
+    return settings[SETTING_KEY] === true;
 }
 
 /**
@@ -423,6 +411,34 @@ async function assertGuestsHaveValidPasses(connection, booking, { guests } = {})
     throw new RESTError(422, parts.join(" "));
 }
 
+/**
+ * Both guest rules for a booking write, from one lookup of the roster's guests.
+ *
+ * Lock order: findPassRequiringPlayers share-locks the roster's person,
+ * membership and role rows; assertGuestsHaveValidPasses then share-locks
+ * their guest_pass rows. That is addGuestPass's order (person, then
+ * guest_pass), so call this after any person FOR UPDATE.
+ *
+ * @param {*} connection
+ * @param {{ date: string, start: string, players?: Array }} booking
+ * @param {{ accompanimentRequired?: boolean }} [options] Club flag the caller
+ *   already read in this transaction; read here when omitted
+ */
+async function assertGuestRules(connection, booking, { accompanimentRequired } = {}) {
+    const personIds = personIdsFromPlayers(booking?.players);
+    if (personIds.length === 0) {
+        return;
+    }
+
+    const guests = await findPassRequiringPlayers(connection, personIds, booking.date);
+
+    await assertGuestsAccompaniedByMember(connection, booking, {
+        settingEnabled: accompanimentRequired,
+        guests,
+    });
+    await assertGuestsHaveValidPasses(connection, booking, { guests });
+}
+
 module.exports = {
     SETTING_KEY,
     formatMissingGuestPassMessage,
@@ -435,4 +451,5 @@ module.exports = {
     isGuestsAccompaniedByMemberRequired,
     assertGuestsAccompaniedByMember,
     assertGuestsHaveValidPasses,
+    assertGuestRules,
 };

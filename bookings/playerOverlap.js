@@ -1,6 +1,6 @@
 const sqlconnector = require("../db/SqlConnector");
 const RESTError = require("../utils/RESTError");
-const { resolveSettings } = require("../club/settings");
+const settingsReader = require("../club/settingsReader");
 const { checkPlayerOverlap } = require("./BookingUtils");
 const { MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 const { log, appLogLevels } = require("../utils/logger/logger");
@@ -94,20 +94,8 @@ function formatPlayerOverlapMessage(rows) {
  * @returns {Promise<boolean>}
  */
 async function isPreventConcurrentMemberBookingsEnabled(connection) {
-    const rows = await sqlconnector.runQuery(
-        connection,
-        `SELECT setting_key, setting_value
-         FROM club_setting
-         WHERE club = ?
-           AND setting_key = ?`,
-        [CLUB_ID, SETTING_KEY]
-    );
-
-    const resolved = resolveSettings(Array.isArray(rows) ? rows : [], {
-        publicOnly: false,
-    });
-
-    return resolved[SETTING_KEY] === true;
+    const settings = await settingsReader.readClubSettings(connection, [SETTING_KEY]);
+    return settings[SETTING_KEY] === true;
 }
 
 /**

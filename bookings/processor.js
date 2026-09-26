@@ -3,7 +3,7 @@ const RESTError = require('./../utils/RESTError');
 const { checkPermission } = require('./permissions/BookingPermissions');
 const { getBooking, insertBooking, getNewBooking, checkOverlap } = require('./BookingUtils');
 const { assertNoConcurrentMemberBookings, lockRosterIfNeeded } = require('./playerOverlap');
-const { assertGuestsAccompaniedByMember, assertGuestsHaveValidPasses } = require('./guestPass');
+const { assertGuestRules } = require('./guestPass');
 const { log, appLogLevels } = require('./../utils/logger/logger');
 const { transactionType } = require("../utils/dbutils");
 
@@ -200,8 +200,7 @@ async function changeSessionTime(id, cmd) {
 
         await assertNoConcurrentMemberBookings(connection, movedbooking, { rosterLocked });
 
-        await assertGuestsAccompaniedByMember(connection, movedbooking);
-        await assertGuestsHaveValidPasses(connection, movedbooking);
+        await assertGuestRules(connection, movedbooking);
         await assertRestrictedMembersCanPlay(connection, movedbooking);
 
         const insertid = await insertBooking(connection, movedbooking);
@@ -350,8 +349,7 @@ async function changeCourt(id, cmd) {
 
         await assertNoConcurrentMemberBookings(connection, movedbooking, { rosterLocked });
 
-        await assertGuestsAccompaniedByMember(connection, movedbooking);
-        await assertGuestsHaveValidPasses(connection, movedbooking);
+        await assertGuestRules(connection, movedbooking);
         await assertRestrictedMembersCanPlay(connection, movedbooking);
 
         const insertid = await insertBooking(connection, movedbooking);

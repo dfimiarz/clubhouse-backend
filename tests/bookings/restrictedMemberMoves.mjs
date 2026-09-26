@@ -18,6 +18,7 @@ describe('restricted member rules when moving bookings', () => {
       async rollback() { active = snapshot; rollbacks++; },
     });
     sql.runExecute = async (_conn, query) => {
+      if (query.includes('FROM club_setting')) return [];
       expect(query).to.include('UPDATE activity SET active = 0');
       active = 0;
       return { affectedRows: 1 };
@@ -29,7 +30,6 @@ describe('restricted member rules when moving bookings', () => {
         group_id: 1, utc_start: 11 * 3600, utc_end: 13 * 3600, utc_req_time: 10 * 3600,
       }];
       if (/FROM\s+participant\s+JOIN/.test(query)) return [{ person_id: 10, firstname: 'Jane', lastname: 'Doe', player_type_id: 1000 }];
-      if (query.includes('FROM club_setting')) return [];
       if (query.includes('SELECT id FROM person')) return [{ id: 10 }];
       if (query.includes('FROM activity_supported')) return [{ supported: 1 }];
       if (query.includes('AS booking_type_desc')) return [{ group_id: 1, same_day_only: 0 }];

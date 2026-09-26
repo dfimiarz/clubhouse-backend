@@ -1,7 +1,9 @@
 import { expect } from "chai";
 
 import sqlconnector from "../../db/SqlConnector.js";
-import { readClubSettings } from "../../club/settingsReader.js";
+import settingsReader from "../../club/settingsReader.js";
+
+const { readClubSettings } = settingsReader;
 import { DEFAULT_BUMPABILITY_POLICY } from "../../club/bumpabilityPolicy.js";
 
 describe("readClubSettings", () => {
@@ -41,5 +43,13 @@ describe("readClubSettings", () => {
     const settings = await readClubSettings({}, ["rebooking_prompt_enabled"]);
 
     expect(settings).to.deep.equal({ rebooking_prompt_enabled: false });
+  });
+
+  it("returns nothing for no keys without querying", async () => {
+    sqlconnector.runExecute = async () => {
+      throw new Error("must not query");
+    };
+
+    expect(await readClubSettings({}, [])).to.deep.equal({});
   });
 });

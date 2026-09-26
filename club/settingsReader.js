@@ -14,8 +14,13 @@ const CLUB_ID = process.env.CLUB_ID;
  * @returns {Promise<Object<string, unknown>>} value per requested key
  */
 async function readClubSettings(connection, keys) {
+    if (!Array.isArray(keys) || keys.length === 0) {
+        return {};
+    }
     if (!connection) {
-        return sqlconnector.withConnection((conn) => readClubSettings(conn, keys));
+        // Through the exported object, so a test double of readClubSettings
+        // also sees the connection-borrowing call
+        return sqlconnector.withConnection((conn) => api.readClubSettings(conn, keys));
     }
 
     // Prepared statement like the single-setting readers; one placeholder per key
@@ -35,4 +40,10 @@ async function readClubSettings(connection, keys) {
     return Object.fromEntries(keys.map((key) => [key, resolved[key]]));
 }
 
-module.exports = { readClubSettings };
+/**
+ * Callers use settingsReader.readClubSettings(...) rather than destructuring,
+ * so tests can replace it (same pattern as SqlConnector's `api`).
+ */
+const api = { readClubSettings };
+
+module.exports = api;

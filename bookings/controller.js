@@ -16,17 +16,12 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 const clubcontroller = require("../club/controller");
 const { suggestPlayerTypes, MEMBER_ACTIVITY_GROUP_ID } = require("./playerType");
 const { memberSessionRuleError } = require("./sessionRules");
-const { readClubSettings } = require("../club/settingsReader");
+const settingsReader = require("../club/settingsReader");
 const {
-  personIdsFromPlayers,
   assertNoConcurrentMemberBookings,
   lockRosterIfNeeded,
 } = require("./playerOverlap");
-const {
-  findPassRequiringPlayers,
-  assertGuestsAccompaniedByMember,
-  assertGuestsHaveValidPasses,
-} = require("./guestPass");
+const { assertGuestRules } = require("./guestPass");
 
 const CLUB_ID = process.env.CLUB_ID;
 const { assertRestrictedMembersCanPlay } = require("./restrictedMember");
@@ -484,7 +479,7 @@ async function validateNewBooking(connection, body) {
   }
 
   // Every club flag this path needs, in one read on this transaction
-  const settings = await readClubSettings(connection, CREATE_SETTING_KEYS);
+  const settings = await settingsReader.readClubSettings(connection, CREATE_SETTING_KEYS);
 
   const ruleError = memberSessionRuleError(
     booking,
@@ -524,18 +519,10 @@ async function validateNewBooking(connection, body) {
 
   await assertNoConcurrentMemberBookings(connection, booking, { rosterLocked });
 
-  // After the person locks: this read takes a share lock on guest_pass.
-  // One read feeds both guest checks.
-  const rosterIds = personIdsFromPlayers(booking.players);
-  const guests = rosterIds.length > 0
-    ? await findPassRequiringPlayers(connection, rosterIds, booking.date)
-    : [];
-
-  await assertGuestsAccompaniedByMember(connection, booking, {
-    settingEnabled: settings.require_guests_accompanied_by_member,
-    guests,
+  // After the person locks (see assertGuestRules for the lock order)
+  await assertGuestRules(connection, booking, {
+    accompanimentRequired: settings.require_guests_accompanied_by_member,
   });
-  await assertGuestsHaveValidPasses(connection, booking, { guests });
   await assertRestrictedMembersCanPlay(connection, booking);
 
   return booking;
@@ -567,6 +554,10 @@ async function addBooking(request) {
  * Dry run of addBooking: the same checks, with nothing written. Resolves when
  * the booking would be accepted right now; rejects with the RESTError the
  * create would return.
+ *
+ * Runs as snapshot reads: the create path's FOR UPDATE / SHARE locks are
+ * dropped, so a preview never blocks or deadlocks with real bookings. The
+ * create re-runs every check under its locks.
  *
  * @param { Request } request
  */

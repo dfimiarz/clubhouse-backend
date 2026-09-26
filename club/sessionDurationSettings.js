@@ -1,5 +1,5 @@
 const sqlconnector = require("../db/SqlConnector");
-const { resolveSettings } = require("./settings");
+const settingsReader = require("./settingsReader");
 const { sessionDurationPolicySchema } = require("./sessionDurationPolicy");
 
 const SETTING_KEY = "session_duration_policy";
@@ -7,11 +7,7 @@ const CLUB_ID = process.env.CLUB_ID;
 
 /** Read fresh settings, reusing the booking transaction when one is supplied. */
 async function getSessionDurationPolicy(connection) {
-    if (!connection) return sqlconnector.withConnection(getSessionDurationPolicy);
-    const rows = await sqlconnector.runExecute(connection,
-        "SELECT setting_key, setting_value FROM club_setting WHERE club = ? AND setting_key = ?",
-        [CLUB_ID, SETTING_KEY]);
-    return resolveSettings(rows, { publicOnly: false })[SETTING_KEY];
+    return (await settingsReader.readClubSettings(connection ?? null, [SETTING_KEY]))[SETTING_KEY];
 }
 
 async function saveSessionDurationPolicy(policy) {
