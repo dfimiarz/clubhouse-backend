@@ -21,11 +21,11 @@ const allDay = [1, 2, 3, 4, 5, 6, 7].map(dayofweek => ({ from: '2000-01-01', to:
 describe('guest pass sale', () => {
   const original = { withConnection: sql.withConnection, runExecute: sql.runExecute, runQuery: sql.runQuery };
   const originalDelete = redis.deleteKey;
-  let passType, settings, inserts, hours, season, hoursQueries;
+  let passType, settings, inserts, hours, season, hoursQueries, roleChecks;
 
   beforeEach(() => {
     passType = { label: 'Weekday pass', valid_days: 1, season_limit: 0 };
-    settings = []; inserts = []; hours = allDay; hoursQueries = [];
+    settings = []; inserts = []; hours = allDay; hoursQueries = []; roleChecks = [];
     // Club-local DATE strings, as the pool returns them (dateStrings: true).
     season = { time_zone, season_start: '2000-01-01', season_end: '2100-01-01' };
     redis.deleteKey = async () => {};
@@ -38,7 +38,14 @@ describe('guest pass sale', () => {
         if (hours instanceof Error) throw hours;
         return hours;
       }
-      if (query.includes('FROM membership_view')) return [{ guest_host: 1, requires_pass: 1 }];
+      if (query.includes('FROM membership_view')) {
+        roleChecks.push(values);
+        const [host, guest] = values;
+        return [
+          { id: host, guest_host: 1, requires_pass: 0 },
+          { id: guest, guest_host: 0, requires_pass: 1 },
+        ];
+      }
       if (query.includes('FROM guest_pass_type WHERE')) return [passType];
       if (query.includes('ORDER BY label')) return [{ id: 3, ...passType }];
       if (query.includes('FROM clubhouse.guest_pass')) return [];
@@ -65,6 +72,22 @@ describe('guest pass sale', () => {
     const pass = await sell();
     expect(pass).to.include({ id: 41, type: 3 });
     expect(inserts).to.have.length(1);
+  });
+
+  it('checks the host and guest roles in one query', async () => {
+    await sell();
+    expect(roleChecks.map((values) => values.slice(0, 2))).to.deep.equal([[12, 11]]);
+  });
+
+  it('refuses a host who cannot host guests', async () => {
+    sql.runExecute = ((inner) => async (conn, query, values) => (
+      query.includes('FROM membership_view')
+        ? [{ id: 12, guest_host: 0, requires_pass: 0 }, { id: 11, guest_host: 0, requires_pass: 1 }]
+        : inner(conn, query, values)
+    ))(sql.runExecute);
+    const error = await sell().then(() => null, err => err);
+    expect(error).to.include({ status: 400, message: 'Invalid guest host' });
+    expect(inserts).to.have.length(0);
   });
 
   it('sells a play_after pass before its cutoff while courts stay open past it', async function () {

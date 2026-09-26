@@ -28,10 +28,11 @@ const addGuestPass = async (passinfo) => {
   (\`guest_id\`, \`member_id\`, \`type\`, \`valid_from\`, \`valid_to\`)
   VALUES (?, ?, ?, ?, ?)`;
 
-  const role_check_q = `SELECT mv.role_type_id,guest_host,requires_pass
+  // Host and guest in one read; rows are matched back by person id
+  const role_check_q = `SELECT mv.id,mv.role_type_id,guest_host,requires_pass
                         FROM membership_view mv 
                         JOIN club c ON c.id = mv.club
-                        WHERE mv.id = ? AND club = ? 
+                        WHERE mv.id IN (?, ?) AND club = ? 
                         AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) >= mv.valid_from
                         AND DATE(convert_tz(NOW(),@@session.time_zone,c.time_zone)) < mv.valid_until FOR SHARE`;
 
@@ -50,13 +51,17 @@ const addGuestPass = async (passinfo) => {
       // Season end is exclusive
       const season_end = sale.season.season_end;
 
-      const host_data_res = await sqlconnector.runExecute(
+      const role_rows = await sqlconnector.runExecute(
         connection,
         role_check_q,
-        [passinfo.host, club_id]
+        [passinfo.host, passinfo.guest, club_id]
       );
+      const rolesFor = (personId) => (Array.isArray(role_rows) ? role_rows : [])
+        .filter((row) => Number(row.id) === Number(personId));
 
-      if (!(Array.isArray(host_data_res) && host_data_res.length === 1)) {
+      const host_data_res = rolesFor(passinfo.host);
+
+      if (host_data_res.length !== 1) {
         throw new RESTError(400, "Invalid host");
       }
 
@@ -67,13 +72,9 @@ const addGuestPass = async (passinfo) => {
         throw new RESTError(400, "Invalid guest host");
       }
 
-      const guest_data_res = await sqlconnector.runExecute(
-        connection,
-        role_check_q,
-        [passinfo.guest, club_id]
-      );
+      const guest_data_res = rolesFor(passinfo.guest);
 
-      if (!(Array.isArray(guest_data_res) && guest_data_res.length === 1)) {
+      if (guest_data_res.length !== 1) {
         throw new RESTError(400, "Guest not found");
       }
 
