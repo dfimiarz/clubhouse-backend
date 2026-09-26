@@ -109,4 +109,20 @@ describe("SqlErrorFactory", () => {
     expect(err.status).to.equal(422);
     expect(err.payload).to.equal("User roles cannot overlap");
   });
+
+  it("maps a booking deadlock or lock timeout to a retryable 409", () => {
+    for (const errno of [1213, 1205]) {
+      const err = sqlErrorFactory.getError("ADD_BOOKING", { errno });
+
+      expect(err.status).to.equal(409);
+      expect(err.payload).to.match(/just booked/);
+    }
+  });
+
+  it("maps a deadlock on any other write to a generic 409", () => {
+    const err = sqlErrorFactory.getError("GET_BOOKING", { errno: 1213 });
+
+    expect(err.status).to.equal(409);
+    expect(err.payload).to.match(/try again/);
+  });
 });

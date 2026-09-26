@@ -17,6 +17,14 @@ const sql_errors = {
         1452: {
             'code': 422,
             'msg' : "Player(s) not found"
+        },
+        1213: {
+            'code': 409,
+            'msg' : "This court or a player was just booked. Please try again"
+        },
+        1205: {
+            'code': 409,
+            'msg' : "This court or a player was just booked. Please try again"
         }
     },
     'GET_BOOKING':{
@@ -39,14 +47,17 @@ function _getError(opcode,sqlerr){
         //Check if error handler is defined for a given errno
         if(Object.prototype.hasOwnProperty.call(opcodeErrs, sqlerr.errno)){
             return new RESTError(opcodeErrs[sqlerr.errno].code,opcodeErrs[sqlerr.errno].msg);
-        }else{
-            return new RESTError(500);
         }
 
     }
-    else{
-        return new RESTError(500);
+
+    //Lost a lock race with a concurrent write (deadlock / lock wait timeout).
+    //The transaction was rolled back, so a retry is safe.
+    if( sqlerr.errno === 1213 || sqlerr.errno === 1205 ){
+        return new RESTError(409,"Another change was saved at the same time. Please try again");
     }
+
+    return new RESTError(500);
 
 }
 
