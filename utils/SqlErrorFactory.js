@@ -51,8 +51,11 @@ function _getError(opcode,sqlerr){
 
     }
 
-    //Lost a lock race with a concurrent write (deadlock / lock wait timeout).
-    //The transaction was rolled back, so a retry is safe.
+    //Lost a lock race with a concurrent write. A deadlock (1213) rolls back
+    //the whole transaction; a lock wait timeout (1205) only the statement,
+    //and withTransaction rolls back the rest before the error reaches here.
+    //Either way nothing was saved, so a retry is safe. ADD_BOOKING above
+    //overrides the message with booking-specific wording.
     if( sqlerr.errno === 1213 || sqlerr.errno === 1205 ){
         return new RESTError(409,"Another change was saved at the same time. Please try again");
     }
