@@ -110,7 +110,9 @@ describe('guest pass type management', () => {
   });
 
   it('persists day and time rules together, preserves omitted days, and clears explicit null', async () => {
-    const data = { ...payload, settings: { play_after: '12:00', allowed_days: [5, 1, 3] } };
+    // A week-long window always contains an allowed day, so the catalog check
+    // below holds whatever weekday the suite runs on.
+    const data = { ...payload, valid: 7, settings: { play_after: '12:00', allowed_days: [5, 1, 3] } };
     const created = await request(appFor()).post(endpoint).send(data).expect(201);
     expect(created.body.settings).to.deep.equal({ play_after: '12:00', allowed_days: [1, 3, 5] });
     expect(created.body.constraints).to.deep.equal([
