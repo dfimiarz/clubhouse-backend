@@ -105,10 +105,9 @@ async function claimHcaptchaToken(token) {
         const stored = await redisconnector.getClient().set(
             usedHcaptchaKey(token),
             "1",
-            {
-                EX: HCAPTCHA_TOKEN_TTL_SECONDS,
-                NX: true,
-            }
+            "EX",
+            HCAPTCHA_TOKEN_TTL_SECONDS,
+            "NX"
         );
 
         return stored === "OK" ? "ok" : "replayed";

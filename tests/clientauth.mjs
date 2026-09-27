@@ -1,6 +1,8 @@
 import { expect } from "chai";
 import express from "express";
 import request from "supertest";
+import { getAuth } from "firebase-admin/auth";
+import firebaseApp from "../firebaseadmin/firebaseadmin.js";
 
 import clientAuth from "../middleware/clientauth.js";
 import authController from "../auth/controller.js";
@@ -153,6 +155,46 @@ describe("checkUserAuth and checkUserRole", () => {
 
     expect(response.status).to.equal(401);
     expect(response.body).to.equal("Unable to verify auth token");
+  });
+
+  it("checks revocation through the Firebase SDK before granting access", async () => {
+    // Exercise the production adapter, including restoration after test overrides.
+    _setFirebaseAuth(null);
+    const sdk = getAuth(firebaseApp);
+    const originalVerify = sdk.verifyIdToken;
+    const originalGetUser = sdk.getUser;
+    let userLookups = 0;
+    let roleLookups = 0;
+    sdk.verifyIdToken = async (_token, checkRevoked) => {
+      if (checkRevoked === true) {
+        throw Object.assign(new Error("Token revoked"), {
+          code: "auth/id-token-revoked",
+        });
+      }
+      return { uid: "revoked-user" };
+    };
+    sdk.getUser = async () => {
+      userLookups += 1;
+      return { email: "member@example.com", emailVerified: true, disabled: false };
+    };
+    authController.getUserRole = async () => {
+      roleLookups += 1;
+      return 2000;
+    };
+
+    try {
+      const response = await request(createApp())
+        .get("/protected")
+        .set("Authorization", "Bearer revoked-token");
+
+      expect(response.status).to.equal(401);
+      expect(response.body).to.equal("Unable to verify auth token");
+      expect(userLookups).to.equal(0);
+      expect(roleLookups).to.equal(0);
+    } finally {
+      sdk.verifyIdToken = originalVerify;
+      sdk.getUser = originalGetUser;
+    }
   });
 
   it("does not grant userauth for an unverified email even with a membership", async () => {

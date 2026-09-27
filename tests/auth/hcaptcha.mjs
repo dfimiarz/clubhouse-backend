@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import Redis from "ioredis";
 
 import authController from "../../auth/controller.js";
 import redisconnector from "../../db/RedisConnector.js";
@@ -12,11 +13,14 @@ function createMemoryRedis() {
   const store = new Map();
   return {
     store,
-    async set(key, _value, options = {}) {
-      if (options.NX && store.has(key)) {
+    async set(key, value, expiryMode, ttl, condition) {
+      if (expiryMode !== "EX" || !Number.isInteger(ttl) || ttl <= 0 || condition !== "NX") {
+        throw new Error("Invalid Redis SET options");
+      }
+      if (store.has(key)) {
         return null;
       }
-      store.set(key, "1");
+      store.set(key, value);
       return "OK";
     },
   };
@@ -87,6 +91,31 @@ describe("verifyhCaptcha", () => {
     global.fetch = originalFetch;
   });
 
+  it("serializes an atomic expiring token claim using the actual ioredis client", async () => {
+    const client = new Redis({ lazyConnect: true });
+    const commands = [];
+    client.sendCommand = async (command) => {
+      commands.push({ name: command.name, args: command.args });
+      return "OK";
+    };
+    redisconnector.getClient = () => client;
+
+    try {
+      const result = await verifyhCaptcha("serialization-token", {
+        env: { NODE_ENV: "development" },
+      });
+
+      expect(result.success).to.equal(true);
+      expect(commands).to.have.lengthOf(1);
+      expect(commands[0].name).to.equal("set");
+      expect(commands[0].args[0]).to.match(/^hcaptcha:used:[a-f0-9]{64}$/);
+      expect(commands[0].args.slice(1)).to.deep.equal(["1", "EX", "120", "NX"]);
+      expect(fetchCalls).to.have.lengthOf(1);
+    } finally {
+      client.disconnect();
+    }
+  });
+
   it("rejects a replayed token from Redis without calling siteverify", async () => {
     const first = await verifyhCaptcha("token-1", {
       env: { NODE_ENV: "development" },
@@ -99,6 +128,17 @@ describe("verifyhCaptcha", () => {
     expect(first.replayed).to.equal(false);
     expect(second.success).to.equal(false);
     expect(second.replayed).to.equal(true);
+    expect(fetchCalls).to.have.lengthOf(1);
+  });
+
+  it("allows only one concurrent verification of the same token", async () => {
+    const results = await Promise.all([
+      verifyhCaptcha("shared-token", { env: { NODE_ENV: "development" } }),
+      verifyhCaptcha("shared-token", { env: { NODE_ENV: "development" } }),
+    ]);
+
+    expect(results.filter((result) => result.success)).to.have.lengthOf(1);
+    expect(results.filter((result) => result.replayed)).to.have.lengthOf(1);
     expect(fetchCalls).to.have.lengthOf(1);
   });
 

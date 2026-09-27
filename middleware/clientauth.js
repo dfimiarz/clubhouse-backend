@@ -6,14 +6,15 @@ const { log, appLogLevels } = require('./../utils/logger/logger');
 const authController = require('./../auth/controller');
 const club_id = process.env.CLUB_ID;
 
-const firebaseAuth = {
+const defaultFirebaseAuth = {
     verifyIdToken(token) {
-        return getAuth(app).verifyIdToken(token)
+        return getAuth(app).verifyIdToken(token, true)
     },
     getUser(uid) {
         return getAuth(app).getUser(uid)
     },
 }
+const firebaseAuth = { ...defaultFirebaseAuth };
 
 /**
  * 
@@ -217,8 +218,7 @@ function isTrustedProxySource(remoteAddress) {
  */
 function _setFirebaseAuth(overrides) {
     if (!overrides) {
-        firebaseAuth.verifyIdToken = (token) => getAuth(app).verifyIdToken(token);
-        firebaseAuth.getUser = (uid) => getAuth(app).getUser(uid);
+        Object.assign(firebaseAuth, defaultFirebaseAuth);
         return;
     }
 
