@@ -118,3 +118,19 @@ describe("end permission", () => {
     expect(errors).to.deep.equal(["Booking too fresh"]);
   });
 });
+
+describe("court change permission", () => {
+  const moved = (overrides) => booking({ schedule_id: 1, utc_start: 1_000, utc_end: 1_120, ...overrides });
+
+  it("allows a moved part shorter than 5 minutes", () => {
+    expect(checkPermission("court_change", moved())).to.deep.equal([]);
+  });
+
+  it("rejects a zero-length moved part", () => {
+    expect(checkPermission("court_change", moved({ utc_end: 1_000 }))).to.not.be.empty;
+  });
+
+  it("still enforces the 5-minute minimum on new bookings", () => {
+    expect(checkPermission("create", moved())).to.include("Session must be at least 5 minutes long");
+  });
+});

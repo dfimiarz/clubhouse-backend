@@ -1,6 +1,7 @@
 const sqlconnector = require('../db/SqlConnector')
 const RESTError = require('./../utils/RESTError');
 const { checkPermission } = require('./permissions/BookingPermissions');
+const { isFreshStart } = require('./permissions/BookingValidator');
 const { getBooking, insertBooking, getNewBooking, checkOverlap } = require('./BookingUtils');
 const { assertNoConcurrentMemberBookings, lockRosterIfNeeded } = require('./playerOverlap');
 const { assertGuestRules } = require('./guestPass');
@@ -237,6 +238,66 @@ async function changeSessionTime(id, cmd) {
 
 
 
+/**
+ * Move a session to another court in one mode: 'whole' deactivates the
+ * original and re-creates it on the new court, 'split' ends the original at
+ * cutoff and creates the rest on the new court. Every check a court change
+ * needs runs here, the roster checks after the original is retired so it does
+ * not conflict with its own players. Throws a RESTError when a check fails.
+ *
+ * @returns {Promise<Object>} the booking to insert
+ */
+async function applyCourtChange(connection, { id, mode, values, cutoff, rosterLocked }) {
+    const movedbooking = await getNewBooking(connection, values);
+
+    if (!movedbooking) {
+        log(appLogLevels.WARNING, "Unable to change court. Booking time not found: " + JSON.stringify(values));
+        throw new RESTError(422, "Create permission denied: Booking time invalid");
+    }
+
+    //Check permissions
+    const create_errors = checkPermission('court_change', movedbooking);
+    if (create_errors.length > 0) {
+        log(appLogLevels.WARNING, "Unable to change court. Permission to create denied: " + JSON.stringify(create_errors));
+        throw new RESTError(422, `Create permission denied: ${create_errors[0]} `);
+    }
+
+    //START Check for overlapping bookings
+    const overlapping_bookings = await checkOverlap(connection, movedbooking.utc_end, movedbooking.utc_start, movedbooking.court_id);
+
+    if (overlapping_bookings.length !== 0) {
+        const overlap_record = {
+            booking_date: movedbooking.date,
+            booking_start: movedbooking.start,
+            booking_end: movedbooking.end,
+            booking_court_id: movedbooking.court_id,
+            overlapping_ids: Array.from(overlapping_bookings)
+        }
+
+        log(appLogLevels.WARNING, "Booking overlap found while changing court: " + JSON.stringify(overlap_record));
+        throw new RESTError(422, "Booking overlap found. Pick a different court.");
+    }
+    //END
+
+    if (mode === 'whole') {
+        const remove_activity_q = `UPDATE activity SET active = 0 where id = ?`
+
+        await sqlconnector.runExecute(connection, remove_activity_q, [id]);
+    }
+    else {
+        const end_booking_q = `UPDATE activity SET end_at = FROM_UNIXTIME(?) where id = ?`
+
+        await sqlconnector.runExecute(connection, end_booking_q, [cutoff, id])
+    }
+
+    await assertNoConcurrentMemberBookings(connection, movedbooking, { rosterLocked });
+
+    await assertGuestRules(connection, movedbooking);
+    await assertRestrictedMembersCanPlay(connection, movedbooking);
+
+    return movedbooking;
+}
+
 async function changeCourt(id, cmd) {
 
     const etag = cmd.hash;
@@ -298,89 +359,81 @@ async function changeCourt(id, cmd) {
 
         const { booking, rosterLocked } = await lockAndReloadForMove(connection, snapshot, etag);
 
-        let initValues;
-
         const cutoff = floorToMinute(booking.utc_req_time);
 
-        if (Number(booking.utc_start) >= cutoff) {
-            //Session is in the future, or started within the current minute and
-            //would leave a zero-length original, so change the court right away
-            const remove_activity_q = `UPDATE activity SET active = 0 where id = ?`
+        const carriedValues = {
+            court: new_court,
+            end: booking.end,
+            notes: booking.notes,
+            bumpable: booking.bumpable,
+            type: booking.type,
+            players: Array.from(booking.players),
+            origin_activity_id: booking.origin_activity_id ?? booking.id,
+        }
 
-            await sqlconnector.runExecute(connection, remove_activity_q, [id]);
+        //Whole: the session keeps its start and just changes court
+        const wholeValues = { ...carriedValues, start: booking.start, date: booking.date };
 
-            initValues = {
-                court: new_court,
-                start: booking.start,
-                date: booking.date,
-                end: booking.end,
-                notes: booking.notes,
-                bumpable: booking.bumpable,
-                type: booking.type,
-                players: Array.from(booking.players),
-                origin_activity_id: booking.origin_activity_id ?? booking.id,
-            }
+        //Split: the moved half starts now, so it belongs to today's date: after
+        //midnight booking.date is still the day the session started on
+        const splitValues = {
+            ...carriedValues,
+            start: floorTimeToMinute(booking.loc_req_time),
+            date: numericDateToIso(booking.loc_req_date),
+        };
 
+        const started = Number(booking.utc_start) < cutoff;
+
+        //Future sessions, and sessions that started within the current minute
+        //(a split would leave a zero-length original), change court whole.
+        //Sessions that started a few minutes ago try whole first rather than
+        //leave a stub on the old court. Longer-running sessions split.
+        let mode = !started || isFreshStart(booking) ? 'whole' : 'split';
+        let movedbooking;
+
+        if (mode === 'split' || !started) {
+            const values = mode === 'whole' ? wholeValues : splitValues;
+            movedbooking = await applyCourtChange(connection, { id, mode, values, cutoff, rosterLocked });
         }
         else {
+            //Any rejected check on the whole move, e.g. the new court was busy
+            //during those minutes or a guest pass does not cover the original
+            //start, undoes it and splits instead
+            await sqlconnector.runQuery(connection, "SAVEPOINT court_change_whole");
 
-            const end_booking_q = `UPDATE activity SET end_at = FROM_UNIXTIME(?) where id = ?`
-
-            await sqlconnector.runExecute(connection, end_booking_q, [cutoff, id])
-
-            //The moved half starts now, so it belongs to today's date: after
-            //midnight booking.date is still the day the session started on
-            initValues = {
-                court: new_court,
-                start: floorTimeToMinute(booking.loc_req_time),
-                date: numericDateToIso(booking.loc_req_date),
-                end: booking.end,
-                notes: booking.notes,
-                bumpable: booking.bumpable,
-                type: booking.type,
-                players: Array.from(booking.players),
-                origin_activity_id: booking.origin_activity_id ?? booking.id,
+            try {
+                movedbooking = await applyCourtChange(connection, { id, mode, values: wholeValues, cutoff, rosterLocked });
             }
+            catch (err) {
+                if (!(err instanceof RESTError)) {
+                    throw err;
+                }
 
+                log(appLogLevels.INFO, "Unable to move fresh session whole, splitting instead: " + JSON.stringify({
+                    booking_id: booking.id,
+                    court: new_court,
+                    reason: err.payload,
+                }));
 
-        }
+                await sqlconnector.runQuery(connection, "ROLLBACK TO SAVEPOINT court_change_whole");
 
-        const movedbooking = await getNewBooking(connection, initValues);
-
-        //Check permissions
-        const create_errors = checkPermission('create', movedbooking);
-        if (create_errors.length > 0) {
-            log(appLogLevels.WARNING, "Unable to change court. Permission to create denied: " + JSON.stringify(create_errors));
-            throw new RESTError(422, `Create permission denied: ${create_errors[0]} `);
-        }
-
-        //START Check for overlapping bookings
-        const overlapping_bookings = await checkOverlap(connection, movedbooking.utc_end, movedbooking.utc_start, movedbooking.court_id);
-
-        if (overlapping_bookings.length !== 0) {
-            const overlap_record = {
-                booking_date: movedbooking.date,
-                booking_start: movedbooking.start,
-                booking_end: movedbooking.end,
-                booking_court_id: movedbooking.court_id,
-                overlapping_ids: Array.from(overlapping_bookings)
+                mode = 'split';
+                movedbooking = await applyCourtChange(connection, { id, mode, values: splitValues, cutoff, rosterLocked });
             }
-
-            log(appLogLevels.WARNING, "Booking overlap found while changing court: " + JSON.stringify(overlap_record));
-            throw new RESTError(422, "Booking overlap found. Pick a different court.");
         }
-        //END
 
-        await assertNoConcurrentMemberBookings(connection, movedbooking, { rosterLocked });
-
-        await assertGuestRules(connection, movedbooking);
-        await assertRestrictedMembersCanPlay(connection, movedbooking);
+        //A whole move keeps the original's creation time, so moving a session
+        //that already started does not reopen its cancel window
+        if (mode === 'whole') {
+            movedbooking.utc_created = booking.utc_created;
+        }
 
         const insertid = await insertBooking(connection, movedbooking);
 
         const change_record = {
             orig_id: booking.id,
-            moved_id: insertid
+            moved_id: insertid,
+            mode: mode
         }
 
         log(appLogLevels.INFO, "Court changed: " + JSON.stringify(change_record));

@@ -7,14 +7,14 @@ const hms = (h, m, s = 0) => h * 3600 + m * 60 + s;
 describe('early end times round down to the minute', () => {
   const original = { withConnection: sql.withConnection, runQuery: sql.runQuery, runExecute: sql.runExecute };
   const hash = 'a'.repeat(32);
-  let row, executes, scheduleStarts, scheduleDates;
+  let row, executes, scheduleStarts, scheduleDates, overlapResults, savepoints, inserts, restriction;
 
   beforeEach(() => {
-    executes = []; scheduleStarts = []; scheduleDates = [];
+    executes = []; scheduleStarts = []; scheduleDates = []; overlapResults = []; savepoints = []; inserts = []; restriction = null;
     row = {
       id: 1, active: 1, etag: hash, court_id: 1, club_id: process.env.CLUB_ID,
       date: '2026-09-14', start: '10:00:00', end: '12:00:00', type: 1000, group_id: 1,
-      utc_start: hms(10, 0), utc_end: hms(12, 0),
+      utc_start: hms(10, 0), utc_end: hms(12, 0), utc_created: hms(9, 0),
       utc_req_time: hms(11, 37, 22), loc_req_time: '11:37:22', loc_req_date: 20260914,
     };
     sql.withConnection = async work => work({
@@ -41,10 +41,15 @@ describe('early end times round down to the minute', () => {
         return [{ utc_start: secs(values.start), utc_end: secs(values.end), utc_req_time: row.utc_req_time, schedule_id: 1 }];
       }
       if (query.includes('rt.requires_pass = 1')) return [];
-      if (query.includes('r.type = ?')) return [];
-      if (query.includes('FROM club_role_setting')) return [];
-      if (query.startsWith('INSERT INTO `activity`')) return { insertId: 2 };
+      if (query.includes('r.type = ?')) return restriction
+        ? [{ id: 10, firstname: 'Jane', lastname: 'Doe', role_id: 1500, role_label: 'Junior' }] : [];
+      if (query.includes('FROM club_role_setting')) return Object.entries(restriction ?? {}).map(([setting_key, value]) => ({
+        role: 1500, setting_key, setting_value: Array.isArray(value) ? JSON.stringify(value) : value,
+      }));
+      if (query.includes('SAVEPOINT')) { savepoints.push(query); return {}; }
+      if (query.startsWith('INSERT INTO `activity`')) { inserts.push(values); return { insertId: 2 }; }
       if (query.includes('INSERT INTO participant')) return { affectedRows: 1 };
+      if (query.includes('AND court = ?')) return overlapResults.shift() ?? [];
       if (query.includes('FOR UPDATE')) return [];
       throw new Error(`Unexpected SQL: ${query}`);
     };
@@ -101,5 +106,62 @@ describe('early end times round down to the minute', () => {
     await processors.changeCourt(1, { hash, court: 2 });
     expect(executes[0].query).to.include('SET active = 0');
     expect(scheduleStarts).to.deep.equal(['11:37:00']);
+  });
+
+  it('splits a court change with less than 5 minutes left', async () => {
+    Object.assign(row, { end: '11:39:00', utc_end: hms(11, 39) });
+    await processors.changeCourt(1, { hash, court: 2 });
+    expect(executes[0].query).to.include('SET end_at = FROM_UNIXTIME(?)');
+    expect(executes[0].values).to.deep.equal([hms(11, 37), 1]);
+    expect(scheduleStarts).to.deep.equal(['11:37:00']);
+  });
+
+  it('moves a session whole when it started less than 5 minutes ago', async () => {
+    Object.assign(row, { start: '11:34:00', utc_start: hms(11, 34) });
+    await processors.changeCourt(1, { hash, court: 2 });
+    expect(executes[0].query).to.include('SET active = 0');
+    expect(scheduleStarts).to.deep.equal(['11:34:00']);
+  });
+
+  it('splits a fresh session when the new court was busy since its start', async () => {
+    Object.assign(row, { start: '11:34:00', utc_start: hms(11, 34) });
+    overlapResults = [[{ id: 7 }]];
+    await processors.changeCourt(1, { hash, court: 2 });
+    expect(executes[0].query).to.include('SET end_at = FROM_UNIXTIME(?)');
+    expect(executes[0].values).to.deep.equal([hms(11, 37), 1]);
+    expect(scheduleStarts).to.deep.equal(['11:34:00', '11:37:00']);
+  });
+
+  it('splits a fresh session when a roster check rejects the whole move', async () => {
+    Object.assign(row, { start: '11:34:00', utc_start: hms(11, 34) });
+    restriction = { play_after: '11:36' };
+    await processors.changeCourt(1, { hash, court: 2 });
+    expect(savepoints).to.deep.equal(['SAVEPOINT court_change_whole', 'ROLLBACK TO SAVEPOINT court_change_whole']);
+    expect(executes.map(e => e.query)).to.satisfy(([whole, split]) =>
+      whole.includes('SET active = 0') && split.includes('SET end_at = FROM_UNIXTIME(?)'));
+    expect(executes[1].values).to.deep.equal([hms(11, 37), 1]);
+    expect(scheduleStarts).to.deep.equal(['11:34:00', '11:37:00']);
+    expect(inserts).to.have.length(1);
+    expect(inserts[0][3]).to.equal(hms(11, 37));
+  });
+
+  it('keeps the original creation time when a started session moves whole', async () => {
+    Object.assign(row, { start: '11:34:00', utc_start: hms(11, 34) });
+    await processors.changeCourt(1, { hash, court: 2 });
+    expect(inserts[0][3]).to.equal(hms(11, 34));
+    expect(inserts[0][8]).to.equal(hms(9, 0));
+  });
+
+  it('gives a split its own creation time', async () => {
+    await processors.changeCourt(1, { hash, court: 2 });
+    expect(inserts[0][8]).to.equal(null);
+  });
+
+  it('rejects a court change when the new court is busy for the rest of the session', async () => {
+    overlapResults = [[{ id: 7 }]];
+    let error;
+    try { await processors.changeCourt(1, { hash, court: 2 }); } catch (e) { error = e; }
+    expect(error?.payload).to.equal('Booking overlap found. Pick a different court.');
+    expect(executes).to.have.length(0);
   });
 });

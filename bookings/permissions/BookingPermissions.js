@@ -1,4 +1,4 @@
-const BookingValidator = require('./BookingValidator');
+const { validators: BookingValidator } = require('./BookingValidator');
 
 /**
  * 

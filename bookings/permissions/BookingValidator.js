@@ -149,7 +149,17 @@ function isOngoing({utc_start,utc_end,utc_req_time}){
 
 }
 
-//Fresh booking is one that stared FRESH_BOOKING_THRESHOLD_SEC before utc_req_time
+/**
+ * A booking is fresh while it started less than FRESH_BOOKING_THRESHOLD_SEC
+ * before utc_req_time. A booking that has not started yet is not fresh.
+ */
+function isFreshStart({utc_start,utc_req_time}){
+    const start = toUnix(utc_start);
+    const req = toUnix(utc_req_time);
+
+    return start <= req && req < start + FRESH_BOOKING_THRESHOLD_SEC;
+}
+
 function isNotFreshBooking({utc_start,utc_req_time}){
     return toUnix(utc_start) + FRESH_BOOKING_THRESHOLD_SEC <= toUnix(utc_req_time) ? null : "Booking too fresh"
 }
@@ -158,6 +168,9 @@ function isNotFreshBooking({utc_start,utc_req_time}){
 // backdated follow-ons are allowed to occupy a slot whose end is already past.
 const validators = {
                      "create" : [ checkCourtSchedule, checkSameDayOnlyBooking, checkUtcInstants, checkStartAndEndTime, checkBookingDuration ],
+                     // A court change carries an existing session to another court, so the
+                     // new-booking minimum does not apply: the moved part may be any length.
+                     "court_change" : [ checkCourtSchedule, checkSameDayOnlyBooking, checkUtcInstants, checkStartAndEndTime ],
                      "cancel" : [ isActive, checkCancelTimeframe],
                      "end": [ isActive, isOngoing, isNotFreshBooking],
                      "move": [ isActive, checkBookingNotEnded ],
@@ -165,4 +178,4 @@ const validators = {
                     }
 
 
-module.exports = validators;
+module.exports = { validators, isFreshStart };

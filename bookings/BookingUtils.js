@@ -255,11 +255,13 @@ async function getBooking(connection, id, t_type = transactionType.NO_TRANSACTIO
  * @param {*} bookinginfo Booking info object
  * 
  * This function does the actual insert to the datbase. Must be called within a transaction.
+ * A finite booking.utc_created is kept as the row's creation time (a session
+ * moved whole keeps its cancel window); otherwise the row is created now.
  */
 async function insertBooking(connection, booking) {
 
-    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start_at\`, \`end_at\`, \`bumpable\`, \`active\`, \`notes\`, \`origin_activity_id\`)
-    VALUES (?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, 1, ?, ?)`;
+    const insertActivityQ = `INSERT INTO \`activity\` (\`type\`, \`court\`, \`date\`, \`start_at\`, \`end_at\`, \`bumpable\`, \`active\`, \`notes\`, \`origin_activity_id\`, \`created\`)
+    VALUES (?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, 1, ?, ?, COALESCE(FROM_UNIXTIME(?), CURRENT_TIMESTAMP))`;
 
     const insertPlayersQ =
         "INSERT INTO participant (`activity`, `person`, `status`, `type`) VALUES ?";
@@ -273,7 +275,9 @@ async function insertBooking(connection, booking) {
         throw new Error("Unable to resolve booking instants to UTC");
     }
 
-    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.utc_start, booking.utc_end, booking.bumpable, booking.notes, originId])
+    const createdAt = Number.isFinite(booking.utc_created) ? booking.utc_created : null;
+
+    const activity_result = await sqlconnector.runQuery(connection, insertActivityQ, [booking.type, booking.court_id, booking.date, booking.utc_start, booking.utc_end, booking.bumpable, booking.notes, originId, createdAt])
 
     const activity_id = activity_result.insertId;
 
