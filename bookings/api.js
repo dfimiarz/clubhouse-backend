@@ -318,11 +318,15 @@ router.patch('/:id', authGuard, validatePatchRequest,
           matchcontroller.processPatchCommand(req.params.id, res.locals.cmd)
                .then((result) => {
 
-                    pusher.trigger("bookings", "booking_change", {
-                         date: result
-                    }).catch(err => {
-                         log(appLogLevels.ERROR, `Pusher error in patch: ${err}`);
-                    })
+                    //A command returns the date it changed, or every date when
+                    //it touched more than one (a court change split after midnight)
+                    for (const date of [].concat(result)) {
+                         pusher.trigger("bookings", "booking_change", {
+                              date: date
+                         }).catch(err => {
+                              log(appLogLevels.ERROR, `Pusher error in patch: ${err}`);
+                         })
+                    }
 
                     res.status(204).send()
                }).catch((err) => {

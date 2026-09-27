@@ -149,19 +149,23 @@ function isOngoing({utc_start,utc_end,utc_req_time}){
 
 }
 
+/** Seconds from the booking's start to utc_req_time; negative before it starts. */
+function secondsSinceStart({utc_start,utc_req_time}){
+    return toUnix(utc_req_time) - toUnix(utc_start);
+}
+
 /**
  * A booking is fresh while it started less than FRESH_BOOKING_THRESHOLD_SEC
  * before utc_req_time. A booking that has not started yet is not fresh.
  */
-function isFreshStart({utc_start,utc_req_time}){
-    const start = toUnix(utc_start);
-    const req = toUnix(utc_req_time);
+function isFreshStart(booking){
+    const elapsed = secondsSinceStart(booking);
 
-    return start <= req && req < start + FRESH_BOOKING_THRESHOLD_SEC;
+    return elapsed >= 0 && elapsed < FRESH_BOOKING_THRESHOLD_SEC;
 }
 
-function isNotFreshBooking({utc_start,utc_req_time}){
-    return toUnix(utc_start) + FRESH_BOOKING_THRESHOLD_SEC <= toUnix(utc_req_time) ? null : "Booking too fresh"
+function isNotFreshBooking(booking){
+    return secondsSinceStart(booking) >= FRESH_BOOKING_THRESHOLD_SEC ? null : "Booking too fresh"
 }
 
 // create does not run checkBookingNotEnded: Fast rebook and other

@@ -7,10 +7,10 @@ const hms = (h, m, s = 0) => h * 3600 + m * 60 + s;
 describe('early end times round down to the minute', () => {
   const original = { withConnection: sql.withConnection, runQuery: sql.runQuery, runExecute: sql.runExecute };
   const hash = 'a'.repeat(32);
-  let row, executes, scheduleStarts, scheduleDates, overlapResults, savepoints, inserts, restriction, activityTypes;
+  let row, executes, scheduleStarts, scheduleDates, overlapResults, savepoints, inserts, restriction, activityTypes, typeReads;
 
   beforeEach(() => {
-    executes = []; scheduleStarts = []; scheduleDates = []; overlapResults = []; savepoints = []; inserts = []; restriction = null;
+    executes = []; scheduleStarts = []; scheduleDates = []; overlapResults = []; savepoints = []; inserts = []; restriction = null; typeReads = 0;
     activityTypes = [{ group_id: 1, same_day_only: 0 }];
     row = {
       id: 1, active: 1, etag: hash, court_id: 1, club_id: process.env.CLUB_ID,
@@ -34,7 +34,7 @@ describe('early end times round down to the minute', () => {
       if (/FROM\s+participant\s+JOIN/.test(query)) return [{ person_id: 10, firstname: 'Jane', lastname: 'Doe', player_type_id: 1000 }];
       if (query.includes('SELECT id FROM person')) return [{ id: 10 }];
       if (query.includes('FROM activity_supported')) return [{ supported: 1 }];
-      if (query.includes('AS booking_type_desc')) return activityTypes;
+      if (query.includes('AS booking_type_desc')) { typeReads++; return activityTypes; }
       if (query.includes('AS schedule_id')) {
         scheduleStarts.push(values.start);
         scheduleDates.push(values.date);
@@ -90,10 +90,15 @@ describe('early end times round down to the minute', () => {
       utc_start: hms(23, 0), utc_end: day + hms(0, 30),
       utc_req_time: day + hms(0, 5, 41), loc_req_time: '00:05:41', loc_req_date: 20260915,
     });
-    await processors.changeCourt(1, { hash, court: 2 });
+    const dates = await processors.changeCourt(1, { hash, court: 2 });
     expect(executes[0].values).to.deep.equal([day + hms(0, 5), 1]);
     expect(scheduleStarts).to.deep.equal(['00:05:00']);
     expect(scheduleDates).to.deep.equal(['2026-09-15']);
+    expect(dates).to.deep.equal(['2026-09-14', '2026-09-15']);
+  });
+
+  it('reports one date for a court change within a day', async () => {
+    expect(await processors.changeCourt(1, { hash, court: 2 })).to.deep.equal(['2026-09-14']);
   });
 
   it('leaves a request time without seconds as is', async () => {
@@ -144,6 +149,7 @@ describe('early end times round down to the minute', () => {
     expect(scheduleStarts).to.deep.equal(['11:34:00', '11:37:00']);
     expect(inserts).to.have.length(1);
     expect(inserts[0][3]).to.equal(hms(11, 37));
+    expect(typeReads).to.equal(1);
   });
 
   it('keeps the original creation time when a started session moves whole', async () => {

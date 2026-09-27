@@ -2,7 +2,7 @@ const sqlconnector = require('../db/SqlConnector')
 const RESTError = require('./../utils/RESTError');
 const { checkPermission } = require('./permissions/BookingPermissions');
 const { isFreshStart } = require('./permissions/BookingValidator');
-const { getBooking, insertBooking, getNewBooking, checkOverlap } = require('./BookingUtils');
+const { getBooking, insertBooking, getNewBooking, selectActivityType, checkOverlap } = require('./BookingUtils');
 const { assertNoConcurrentMemberBookings, lockRosterIfNeeded } = require('./playerOverlap');
 const { assertGuestRules } = require('./guestPass');
 const { log, appLogLevels } = require('./../utils/logger/logger');
@@ -362,8 +362,12 @@ async function changeCourt(id, cmd) {
 
         const cutoff = floorToMinute(booking.utc_req_time);
 
+        //Read once: a fresh session that cannot move whole builds a second candidate
+        const activity_type_row = await selectActivityType(connection, booking.type);
+
         const carriedValues = {
             court: new_court,
+            activity_type_row,
             end: booking.end,
             notes: booking.notes,
             bumpable: booking.bumpable,
@@ -439,7 +443,9 @@ async function changeCourt(id, cmd) {
 
         log(appLogLevels.INFO, "Court changed: " + JSON.stringify(change_record));
 
-        return movedbooking.date;
+        //After midnight a split leaves the original on the day it started and
+        //puts the moved part on today, so clients showing either day refresh
+        return [...new Set([booking.date, movedbooking.date])];
     }, { mode: "readWrite" });
 }
 
