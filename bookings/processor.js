@@ -20,7 +20,13 @@ function floorToMinute(utcSeconds) {
  * local-time twin of floorToMinute.
  */
 function floorTimeToMinute(time) {
-    return String(time).replace(/:\d{2}(\.\d+)?$/, ':00');
+    return String(time).replace(/^(\d{1,2}:\d{2}):\d{2}(\.\d+)?$/, '$1:00');
+}
+
+/** loc_req_date (YYYYMMDD, from `DATE + 0`) -> "YYYY-MM-DD". */
+function numericDateToIso(numericDate) {
+    const s = String(numericDate);
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 }
 
 /**
@@ -322,10 +328,12 @@ async function changeCourt(id, cmd) {
 
             await sqlconnector.runExecute(connection, end_booking_q, [cutoff, id])
 
+            //The moved half starts now, so it belongs to today's date: after
+            //midnight booking.date is still the day the session started on
             initValues = {
                 court: new_court,
                 start: floorTimeToMinute(booking.loc_req_time),
-                date: booking.date,
+                date: numericDateToIso(booking.loc_req_date),
                 end: booking.end,
                 notes: booking.notes,
                 bumpable: booking.bumpable,
