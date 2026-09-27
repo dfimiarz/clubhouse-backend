@@ -7,10 +7,11 @@ const hms = (h, m, s = 0) => h * 3600 + m * 60 + s;
 describe('early end times round down to the minute', () => {
   const original = { withConnection: sql.withConnection, runQuery: sql.runQuery, runExecute: sql.runExecute };
   const hash = 'a'.repeat(32);
-  let row, executes, scheduleStarts, scheduleDates, overlapResults, savepoints, inserts, restriction;
+  let row, executes, scheduleStarts, scheduleDates, overlapResults, savepoints, inserts, restriction, activityTypes;
 
   beforeEach(() => {
     executes = []; scheduleStarts = []; scheduleDates = []; overlapResults = []; savepoints = []; inserts = []; restriction = null;
+    activityTypes = [{ group_id: 1, same_day_only: 0 }];
     row = {
       id: 1, active: 1, etag: hash, court_id: 1, club_id: process.env.CLUB_ID,
       date: '2026-09-14', start: '10:00:00', end: '12:00:00', type: 1000, group_id: 1,
@@ -33,7 +34,7 @@ describe('early end times round down to the minute', () => {
       if (/FROM\s+participant\s+JOIN/.test(query)) return [{ person_id: 10, firstname: 'Jane', lastname: 'Doe', player_type_id: 1000 }];
       if (query.includes('SELECT id FROM person')) return [{ id: 10 }];
       if (query.includes('FROM activity_supported')) return [{ supported: 1 }];
-      if (query.includes('AS booking_type_desc')) return [{ group_id: 1, same_day_only: 0 }];
+      if (query.includes('AS booking_type_desc')) return activityTypes;
       if (query.includes('AS schedule_id')) {
         scheduleStarts.push(values.start);
         scheduleDates.push(values.date);
@@ -155,6 +156,24 @@ describe('early end times round down to the minute', () => {
   it('gives a split its own creation time', async () => {
     await processors.changeCourt(1, { hash, court: 2 });
     expect(inserts[0][8]).to.equal(null);
+  });
+
+  it('rejects a time change with a 422 when the activity type is no longer enabled', async () => {
+    activityTypes = [];
+    let error;
+    try { await processors.changeSessionTime(1, { hash, start: '11:00', end: '12:00' }); } catch (e) { error = e; }
+    expect(error?.status).to.equal(422);
+    expect(error?.payload).to.equal('Unable to create the moved booking');
+    expect(inserts).to.have.length(0);
+  });
+
+  it('rejects a court change with a 422 when the activity type is no longer enabled', async () => {
+    activityTypes = [];
+    let error;
+    try { await processors.changeCourt(1, { hash, court: 2 }); } catch (e) { error = e; }
+    expect(error?.status).to.equal(422);
+    expect(error?.payload).to.equal('Unable to create the moved booking');
+    expect(executes).to.have.length(0);
   });
 
   it('rejects a court change when the new court is busy for the rest of the session', async () => {

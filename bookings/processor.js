@@ -192,31 +192,11 @@ async function changeSessionTime(id, cmd) {
             origin_activity_id: booking.origin_activity_id ?? booking.id,
         }
 
-        const movedbooking = await getNewBooking(connection, initValues);
-
-        //Check permissions
-        const create_errors = checkPermission('create', movedbooking);
-        if (create_errors.length > 0) {
-            log(appLogLevels.WARNING, "Unable to change time. Create permission denied: " + JSON.stringify(create_errors));
-            throw new RESTError(422, "Create permission denied: " + create_errors[0]);
-        }
-
-        //START Check for overlapping bookings
-        const overlapping_bookings = await checkOverlap(connection, movedbooking.utc_end, movedbooking.utc_start, movedbooking.court_id);
-
-        if (overlapping_bookings.length !== 0) {
-            const overlap_record = {
-                booking_date: movedbooking.date,
-                booking_start: movedbooking.start,
-                booking_end: movedbooking.end,
-                booking_court_id: movedbooking.court_id,
-                overlapping_ids: Array.from(overlapping_bookings)
-            }
-
-            log(appLogLevels.WARNING, "Booking overlap found while changing time: " + JSON.stringify(overlap_record));
-            throw new RESTError(422, "Booking overlap found. Pick different time.");
-        }
-        //END
+        const movedbooking = await buildCheckedBooking(connection, initValues, {
+            action: 'create',
+            verb: 'change time',
+            overlapMessage: "Booking overlap found. Pick different time.",
+        });
 
         await assertNoConcurrentMemberBookings(connection, movedbooking, { rosterLocked });
 
@@ -239,27 +219,29 @@ async function changeSessionTime(id, cmd) {
 
 
 /**
- * Move a session to another court in one mode: 'whole' deactivates the
- * original and re-creates it on the new court, 'split' ends the original at
- * cutoff and creates the rest on the new court. Every check a court change
- * needs runs here, the roster checks after the original is retired so it does
- * not conflict with its own players. Throws a RESTError when a check fails.
+ * Build the booking a move would insert and check it against the permission
+ * rules for `action` and the other bookings on its court. The caller retires
+ * the original first when it is on the same court, so it is not an overlap.
  *
- * @returns {Promise<Object>} the booking to insert
+ * @param {{ action: string, verb: string, overlapMessage: string }} options
+ *   verb names the move in logs ("change time"); overlapMessage is the 422
+ *   payload when the court is taken
+ * @returns {Promise<Object>} the booking to insert; throws a 422 RESTError
  */
-async function applyCourtChange(connection, { id, mode, values, cutoff, rosterLocked }) {
-    const movedbooking = await getNewBooking(connection, values);
+async function buildCheckedBooking(connection, initValues, { action, verb, overlapMessage }) {
+    const movedbooking = await getNewBooking(connection, initValues);
 
+    //No booking when the activity type is no longer enabled for this club
     if (!movedbooking) {
-        log(appLogLevels.WARNING, "Unable to change court. Booking time not found: " + JSON.stringify(values));
-        throw new RESTError(422, "Create permission denied: Booking time invalid");
+        log(appLogLevels.WARNING, `Unable to ${verb}. Booking type or time not found: ` + JSON.stringify(initValues));
+        throw new RESTError(422, "Unable to create the moved booking");
     }
 
     //Check permissions
-    const create_errors = checkPermission('court_change', movedbooking);
+    const create_errors = checkPermission(action, movedbooking);
     if (create_errors.length > 0) {
-        log(appLogLevels.WARNING, "Unable to change court. Permission to create denied: " + JSON.stringify(create_errors));
-        throw new RESTError(422, `Create permission denied: ${create_errors[0]} `);
+        log(appLogLevels.WARNING, `Unable to ${verb}. Create permission denied: ` + JSON.stringify(create_errors));
+        throw new RESTError(422, "Create permission denied: " + create_errors[0]);
     }
 
     //START Check for overlapping bookings
@@ -274,10 +256,29 @@ async function applyCourtChange(connection, { id, mode, values, cutoff, rosterLo
             overlapping_ids: Array.from(overlapping_bookings)
         }
 
-        log(appLogLevels.WARNING, "Booking overlap found while changing court: " + JSON.stringify(overlap_record));
-        throw new RESTError(422, "Booking overlap found. Pick a different court.");
+        log(appLogLevels.WARNING, `Booking overlap found. Unable to ${verb}: ` + JSON.stringify(overlap_record));
+        throw new RESTError(422, overlapMessage);
     }
     //END
+
+    return movedbooking;
+}
+
+/**
+ * Move a session to another court in one mode: 'whole' deactivates the
+ * original and re-creates it on the new court, 'split' ends the original at
+ * cutoff and creates the rest on the new court. Every check a court change
+ * needs runs here, the roster checks after the original is retired so it does
+ * not conflict with its own players. Throws a RESTError when a check fails.
+ *
+ * @returns {Promise<Object>} the booking to insert
+ */
+async function applyCourtChange(connection, { id, mode, values, cutoff, rosterLocked }) {
+    const movedbooking = await buildCheckedBooking(connection, values, {
+        action: 'court_change',
+        verb: 'change court',
+        overlapMessage: "Booking overlap found. Pick a different court.",
+    });
 
     if (mode === 'whole') {
         const remove_activity_q = `UPDATE activity SET active = 0 where id = ?`
