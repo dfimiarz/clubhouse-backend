@@ -10,6 +10,19 @@ const { transactionType } = require("../utils/dbutils");
 const CLUB_ID = process.env.CLUB_ID;
 const { assertRestrictedMembersCanPlay } = require('./restrictedMember');
 
+/** Drop the seconds so a session cut short ends on a whole minute. */
+function floorToMinute(utcSeconds) {
+    return Math.floor(Number(utcSeconds) / 60) * 60;
+}
+
+/**
+ * "HH:MM:SS" -> "HH:MM:00". Club offsets are whole minutes, so this is the
+ * local-time twin of floorToMinute.
+ */
+function floorTimeToMinute(time) {
+    return String(time).replace(/:\d{2}(\.\d+)?$/, ':00');
+}
+
 /**
  * Snapshot a booking, take the person mutex when the concurrent-member rule
  * applies, then re-read the row FOR UPDATE. People before the activity so add
@@ -87,7 +100,7 @@ async function endSession(id, cmd) {
             throw new RESTError(422, "Permission to end denied: " + errors[0]);
         }
 
-        await sqlconnector.runExecute(connection, update_activity_q, [booking.utc_req_time, id])
+        await sqlconnector.runExecute(connection, update_activity_q, [floorToMinute(booking.utc_req_time), id])
 
         log(appLogLevels.INFO, "Booking ended: " + JSON.stringify(booking));
 
@@ -281,8 +294,11 @@ async function changeCourt(id, cmd) {
 
         let initValues;
 
-        if (Number(booking.utc_start) > Number(booking.utc_req_time)) {
-            //Session is in the future so change the court right away
+        const cutoff = floorToMinute(booking.utc_req_time);
+
+        if (Number(booking.utc_start) >= cutoff) {
+            //Session is in the future, or started within the current minute and
+            //would leave a zero-length original, so change the court right away
             const remove_activity_q = `UPDATE activity SET active = 0 where id = ?`
 
             await sqlconnector.runExecute(connection, remove_activity_q, [id]);
@@ -304,11 +320,11 @@ async function changeCourt(id, cmd) {
 
             const end_booking_q = `UPDATE activity SET end_at = FROM_UNIXTIME(?) where id = ?`
 
-            await sqlconnector.runExecute(connection, end_booking_q, [booking.utc_req_time, id])
+            await sqlconnector.runExecute(connection, end_booking_q, [cutoff, id])
 
             initValues = {
                 court: new_court,
-                start: booking.loc_req_time,
+                start: floorTimeToMinute(booking.loc_req_time),
                 date: booking.date,
                 end: booking.end,
                 notes: booking.notes,
